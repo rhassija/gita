@@ -1,0 +1,29 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+backend/venv/
+.venv/
+env/
+venv/
+ENV/
+
+# Local configuration files
+backend/.env
+.env.local
+.env.*.local
+
+# Databases
+backend/chroma_db/
+
+# Large Book Files
+books/*.pdf
+books/*.rar
+books/*.zip
+books/*.epub
+
+# OS files
+.DS_Store
+Thumbs.db

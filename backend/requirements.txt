@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+chromadb
+google-generativeai
+pydantic>=2.9.0
+python-dotenv
+python-multipart
+pypdf

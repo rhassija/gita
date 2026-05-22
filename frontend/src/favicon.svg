@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fbbf24" stop-opacity="1" />
+      <stop offset="100%" stop-color="#d97706" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <!-- Background Glow -->
+  <circle cx="50" cy="50" r="40" fill="url(#glow)" opacity="0.5" />
+  <!-- Lotus Petals -->
+  <path d="M 50 15 C 35 35, 45 65, 50 85 C 55 65, 65 35, 50 15 Z" fill="#fbbf24" stroke="#78350f" stroke-width="1.5" />
+  <path d="M 50 30 C 25 45, 35 70, 50 85 C 65 70, 75 45, 50 30 Z" fill="#f59e0b" stroke="#78350f" stroke-width="1.5" opacity="0.8" />
+  <path d="M 50 45 C 15 55, 25 75, 50 85 C 75 75, 85 55, 50 45 Z" fill="#d97706" stroke="#78350f" stroke-width="1.5" opacity="0.9" />
+  <!-- Center Bindu -->
+  <circle cx="50" cy="72" r="4" fill="#fff" />
+</svg>
