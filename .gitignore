@@ -17,6 +17,7 @@ backend/.env
 
 # Databases
 backend/chroma_db/
+backend/chroma_db_backup/
 
 # Large Book Files
 books/*.pdf

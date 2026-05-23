@@ -151,6 +151,7 @@ export default function App() {
   const [books, setBooks] = useState<Book[]>([]);
   const [totalChunks, setTotalChunks] = useState(0);
   const [isIngesting, setIsIngesting] = useState(false);
+  const [clearOnIngest, setClearOnIngest] = useState(false);
   const [ingestionStatus, setIngestionStatus] = useState<string>("");
   const [ingestionProgress, setIngestionProgress] = useState<{
     book: string;
@@ -228,7 +229,7 @@ export default function App() {
     setIngestionStatus("Initializing...");
     setIngestionProgress(null);
     try {
-      const response = await fetch(`${API_BASE}/api/ingest`, { method: "POST" });
+      const response = await fetch(`${API_BASE}/api/ingest?clear=${clearOnIngest}`, { method: "POST" });
       if (!response.ok) {
         throw new Error(`HTTP error ${response.status}`);
       }
@@ -550,6 +551,16 @@ export default function App() {
               <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
                 Reads raw books in <code>gita/books/</code> directory and builds the vector search database.
               </p>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-secondary)", cursor: "pointer", userSelect: "none", margin: "4px 0" }}>
+                <input 
+                  type="checkbox" 
+                  checked={clearOnIngest} 
+                  onChange={(e) => setClearOnIngest(e.target.checked)} 
+                  disabled={isIngesting || backendStatus === "offline"}
+                  style={{ accentColor: "var(--accent-gold)", width: "16px", height: "16px", cursor: "pointer" }}
+                />
+                Clear database before indexing
+              </label>
               <button 
                 className="btn btn-primary" 
                 onClick={handleIngest} 

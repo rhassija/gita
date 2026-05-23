@@ -11,7 +11,9 @@ from app.config import (
     IS_MOCK_MODE,
     LLM_PROVIDER,
     OLLAMA_HOST,
-    OLLAMA_MODEL
+    OLLAMA_MODEL,
+    EMBEDDING_PROVIDER,
+    OLLAMA_EMBEDDING_MODEL
 )
 
 if not IS_MOCK_MODE:
@@ -19,8 +21,45 @@ if not IS_MOCK_MODE:
 
 def get_embedding(text: str, is_query: bool = False) -> List[float]:
     """
-    Generate embedding for a single text using Gemini API or a mock generator.
+    Generate embedding for a single text using Ollama, Gemini API, or a mock generator.
     """
+    if EMBEDDING_PROVIDER == "ollama":
+        prefix = ""
+        if "nomic" in OLLAMA_EMBEDDING_MODEL.lower():
+            prefix = "search_query: " if is_query else "search_document: "
+        
+        try:
+            url = f"{OLLAMA_HOST}/api/embed"
+            payload = {
+                "model": OLLAMA_EMBEDDING_MODEL,
+                "input": f"{prefix}{text}"
+            }
+            response = requests.post(url, json=payload)
+            response.raise_for_status()
+            res_json = response.json()
+            if "embeddings" in res_json and res_json["embeddings"]:
+                return res_json["embeddings"][0]
+            
+            # Fallback to /api/embeddings if /api/embed response was empty
+            url_fallback = f"{OLLAMA_HOST}/api/embeddings"
+            payload_fallback = {
+                "model": OLLAMA_EMBEDDING_MODEL,
+                "prompt": f"{prefix}{text}"
+            }
+            response_fb = requests.post(url_fallback, json=payload_fallback)
+            response_fb.raise_for_status()
+            res_fb_json = response_fb.json()
+            if "embedding" in res_fb_json:
+                return res_fb_json["embedding"]
+            raise ValueError(f"Unexpected response format from Ollama: {res_json}")
+        except Exception as e:
+            print(f"Error generating embedding via Ollama API: {e}")
+            dim = 768
+            hasher = hashlib.md5(text.encode('utf-8'))
+            seed = int(hasher.hexdigest(), 16) % 1000000
+            rng = random.Random(seed)
+            return [rng.uniform(-0.1, 0.1) for _ in range(dim)]
+
     # gemini-embedding-2 uses 3072 dimensions, older/default models use 768
     dim = 3072 if "embedding-2" in EMBEDDING_MODEL else 768
 
@@ -49,8 +88,30 @@ def get_embedding(text: str, is_query: bool = False) -> List[float]:
 
 def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
     """
-    Generate embeddings for a list of texts using Gemini API or a mock generator.
+    Generate embeddings for a list of texts using Ollama, Gemini API, or a mock generator.
     """
+    if EMBEDDING_PROVIDER == "ollama":
+        prefix = "search_document: " if "nomic" in OLLAMA_EMBEDDING_MODEL.lower() else ""
+        prefixed_texts = [f"{prefix}{text}" for text in texts]
+        try:
+            url = f"{OLLAMA_HOST}/api/embed"
+            payload = {
+                "model": OLLAMA_EMBEDDING_MODEL,
+                "input": prefixed_texts
+            }
+            response = requests.post(url, json=payload)
+            response.raise_for_status()
+            res_json = response.json()
+            if "embeddings" in res_json:
+                return res_json["embeddings"]
+            raise ValueError(f"Unexpected response format from Ollama /api/embed: {res_json}")
+        except Exception as e:
+            print(f"Error generating batch embeddings via Ollama API: {e}. Falling back to individual generation.")
+            embeddings = []
+            for text in texts:
+                embeddings.append(get_embedding(text, is_query=False))
+            return embeddings
+
     dim = 3072 if "embedding-2" in EMBEDDING_MODEL else 768
 
     if IS_MOCK_MODE:

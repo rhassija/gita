@@ -2,13 +2,13 @@ import os
 import re
 import uuid
 import argparse
-from typing import Generator, Dict
+from typing import Generator, Dict, List
 from pypdf import PdfReader
 from app.database import add_documents, add_documents_batch, clear_database, get_collection
 
 BOOKS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../books"))
 
-def parse_structured_txt(file_path: str) -> list[dict]:
+def parse_structured_txt_generator(file_path: str) -> Generator[Dict, None, None]:
     """
     Parses a TXT file containing structured verses in format:
     [Book: Book Name]
@@ -20,9 +20,7 @@ def parse_structured_txt(file_path: str) -> list[dict]:
         content = f.read()
 
     # Split by double newlines or blocks
-    # Looking for blocks starting with [Book: ...]
     blocks = re.split(r'\n\s*\n', content)
-    chunks = []
     
     current_book = os.path.basename(file_path).replace(".txt", "")
     current_chapter = "1"
@@ -54,7 +52,7 @@ def parse_structured_txt(file_path: str) -> list[dict]:
         if not clean_text:
             continue
             
-        chunks.append({
+        yield {
             "text": clean_text,
             "metadata": {
                 "book": current_book,
@@ -62,11 +60,9 @@ def parse_structured_txt(file_path: str) -> list[dict]:
                 "verse": current_verse,
                 "source_type": "text_structured"
             }
-        })
-        
-    return chunks
+        }
 
-def parse_plain_txt(file_path: str) -> list[dict]:
+def parse_plain_txt_generator(file_path: str) -> Generator[Dict, None, None]:
     """
     Parses a plain text file by splitting it into paragraphs/chunks.
     """
@@ -75,14 +71,12 @@ def parse_plain_txt(file_path: str) -> list[dict]:
 
     # Split by double newlines (paragraphs)
     paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
-    chunks = []
     book_name = os.path.basename(file_path).replace(".txt", "")
     
     for idx, para in enumerate(paragraphs):
-        # If paragraph is too small, we might skip it or merge it, but for now just add
         if len(para) < 20:
             continue
-        chunks.append({
+        yield {
             "text": para,
             "metadata": {
                 "book": book_name,
@@ -90,53 +84,26 @@ def parse_plain_txt(file_path: str) -> list[dict]:
                 "paragraph": str(idx + 1),
                 "source_type": "text_plain"
             }
-        })
-    return chunks
+        }
 
-def parse_pdf(file_path: str) -> list[dict]:
+def ingest_all_books_generator() -> Generator[Dict, None, None]:
     """
-    Parses a PDF file page by page, adding page number metadata.
-    """
-    reader = PdfReader(file_path)
-    chunks = []
-    book_name = os.path.basename(file_path).replace(".pdf", "")
-    
-    for page_num, page in enumerate(reader.pages):
-        text = page.extract_text()
-        if not text or len(text.strip()) < 50:
-            continue
-            
-        # Clean text basic whitespace
-        clean_text = re.sub(r'\s+', ' ', text).strip()
-        
-        chunks.append({
-            "text": clean_text,
-            "metadata": {
-                "book": book_name,
-                "page": str(page_num + 1),
-                "chapter": "N/A",
-                "source_type": "pdf"
-            }
-        })
-    return chunks
-
-def ingest_all_books_generator() -> Generator[dict, None, None]:
-    """
-    Generator that scans the books directory, parses files, embeds and adds them
-    to ChromaDB in batches, and yields progress/status updates.
+    Generator that scans the books directory, parses files page-by-page/chunk-by-chunk,
+    embeds and adds them to ChromaDB in streaming batches of 200, and yields progress/status updates.
     """
     if not os.path.exists(BOOKS_DIR):
         yield {"type": "error", "message": f"Books directory not found at: {BOOKS_DIR}"}
         return
 
-    files = [f for f in os.listdir(BOOKS_DIR) if f.endswith(".txt") or f.endswith(".pdf")]
+    # Filter out archive files, only load TXT and PDF
+    files = sorted([f for f in os.listdir(BOOKS_DIR) if f.endswith(".txt") or f.endswith(".pdf")])
     if not files:
         yield {"type": "warning", "message": "No books found in books directory to ingest."}
         return
 
     yield {"type": "info", "message": f"Found {len(files)} files in books directory."}
 
-    # Fetch already ingested books from database
+    # Fetch already ingested books from database to support incremental ingestion
     existing_books = set()
     try:
         coll = get_collection()
@@ -147,67 +114,121 @@ def ingest_all_books_generator() -> Generator[dict, None, None]:
                 for meta in res["metadatas"]:
                     if meta and "book" in meta:
                         existing_books.add(meta["book"])
-            yield {"type": "info", "message": f"Found {len(existing_books)} unique book(s) already in database: {list(existing_books)}"}
+            yield {"type": "info", "message": f"Found {len(existing_books)} unique book(s) already in database."}
     except Exception as e:
         yield {"type": "info", "message": f"Could not read existing books from database (will process all): {e}"}
 
     processed_any = False
+    
     for file_name in files:
         file_path = os.path.join(BOOKS_DIR, file_name)
-        
-        # Pre-parse check based on filename (without extension)
         pred_book_name = file_name.replace(".pdf", "").replace(".txt", "")
+        
+        # Incremental skip check based on predicted book name
         if pred_book_name in existing_books:
             yield {"type": "skip", "file": file_name, "book": pred_book_name}
             continue
             
         try:
             yield {"type": "parsing", "file": file_name}
+            
+            batch_size = 200
+            current_batch = []
+            inserted_count = 0
+            
+            # Setup the specific chunk stream generator for this file type
             if file_name.endswith(".pdf"):
-                file_chunks = parse_pdf(file_path)
+                reader = PdfReader(file_path)
+                total_pages = len(reader.pages)
+                
+                def pdf_stream():
+                    for page_idx, page in enumerate(reader.pages):
+                        try:
+                            text = page.extract_text()
+                            if not text or len(text.strip()) < 50:
+                                continue
+                            clean_text = re.sub(r'\s+', ' ', text).strip()
+                            yield {
+                                "text": clean_text,
+                                "metadata": {
+                                    "book": pred_book_name,
+                                    "page": str(page_idx + 1),
+                                    "chapter": "N/A",
+                                    "source_type": "pdf"
+                                }
+                            }
+                        except Exception as page_err:
+                            print(f"Error parsing page {page_idx + 1} of {file_name}: {page_err}")
+                
+                chunks_generator = pdf_stream()
+                total_units = total_pages
             else:
-                # Read start to detect structured format
                 with open(file_path, "r", encoding="utf-8") as f:
                     sample = f.read(500)
                 if "[Book:" in sample or "[Chapter:" in sample:
-                    file_chunks = parse_structured_txt(file_path)
+                    chunks_generator = parse_structured_txt_generator(file_path)
                 else:
-                    file_chunks = parse_plain_txt(file_path)
+                    chunks_generator = parse_plain_txt_generator(file_path)
+                total_units = 0
             
-            if not file_chunks:
-                yield {"type": "warning", "message": f"No text could be extracted from {file_name}."}
-                continue
-
-            # Post-parse check in case structured book name differs from filename
-            actual_book_name = file_chunks[0]["metadata"].get("book", pred_book_name)
-            if actual_book_name in existing_books:
-                yield {"type": "skip", "file": file_name, "book": actual_book_name}
+            # Process the generator stream and index in batches
+            is_skipped = False
+            for chunk in chunks_generator:
+                current_batch.append(chunk)
+                
+                # Check structural book name (could differ from filename in structured txt files)
+                if inserted_count == 0 and len(current_batch) == 1:
+                    actual_book_name = chunk["metadata"].get("book", pred_book_name)
+                    if actual_book_name != pred_book_name and actual_book_name in existing_books:
+                        yield {"type": "skip", "file": file_name, "book": actual_book_name}
+                        is_skipped = True
+                        break
+                
+                if len(current_batch) >= batch_size:
+                    batch_texts = [c["text"] for c in current_batch]
+                    batch_metadatas = [c["metadata"] for c in current_batch]
+                    batch_ids = [str(uuid.uuid4()) for _ in range(len(current_batch))]
+                    
+                    add_documents_batch(batch_texts, batch_metadatas, batch_ids)
+                    inserted_count += len(current_batch)
+                    processed_any = True
+                    current_batch = []
+                    
+                    yield {
+                        "type": "progress",
+                        "file": file_name,
+                        "book": pred_book_name,
+                        "current": inserted_count,
+                        "total": max(total_units, inserted_count)
+                    }
+            
+            if is_skipped:
                 continue
                 
-            processed_any = True
-            yield {"type": "parsed", "file": file_name, "book": actual_book_name, "chunks": len(file_chunks)}
-            
-            # Ingest in batches of 250
-            total_chunks = len(file_chunks)
-            batch_size = 250
-            for i in range(0, total_chunks, batch_size):
-                batch = file_chunks[i : i + batch_size]
-                batch_texts = [c["text"] for c in batch]
-                batch_metadatas = [c["metadata"] for c in batch]
-                batch_ids = [str(uuid.uuid4()) for _ in range(len(batch))]
+            # Flush any remaining items in the buffer
+            if current_batch:
+                batch_texts = [c["text"] for c in current_batch]
+                batch_metadatas = [c["metadata"] for c in current_batch]
+                batch_ids = [str(uuid.uuid4()) for _ in range(len(current_batch))]
                 
-                # Perform batch addition
                 add_documents_batch(batch_texts, batch_metadatas, batch_ids)
+                inserted_count += len(current_batch)
+                processed_any = True
+                current_batch = []
                 
                 yield {
                     "type": "progress",
                     "file": file_name,
-                    "book": actual_book_name,
-                    "current": min(i + batch_size, total_chunks),
-                    "total": total_chunks
+                    "book": pred_book_name,
+                    "current": inserted_count,
+                    "total": inserted_count
                 }
                 
-            yield {"type": "success", "file": file_name, "book": actual_book_name, "chunks": total_chunks}
+            if inserted_count > 0:
+                yield {"type": "success", "file": file_name, "book": pred_book_name, "chunks": inserted_count}
+            else:
+                yield {"type": "warning", "message": f"No text could be indexed from {file_name}."}
+                
         except Exception as e:
             yield {"type": "error", "message": f"Error processing {file_name}: {str(e)}"}
 
@@ -215,7 +236,6 @@ def ingest_all_books_generator() -> Generator[dict, None, None]:
         yield {"type": "done", "message": "All books are already loaded. No new content to ingest.", "total_chunks": get_collection().count()}
         return
 
-    # Verify count
     try:
         coll = get_collection()
         yield {"type": "done", "message": f"Ingestion completed. Current collection document count: {coll.count()}", "total_chunks": coll.count()}
@@ -235,10 +255,8 @@ def ingest_all_books():
             print(f"⏩ Skipping {event['file']} (already ingested as '{event['book']}')")
         elif etype == "parsing":
             print(f"🔍 Parsing {event['file']}...")
-        elif etype == "parsed":
-            print(f"📖 Extracted {event['chunks']} chunks for '{event['book']}'")
         elif etype == "progress":
-            print(f"   📥 Ingesting '{event['book']}': {event['current']} / {event['total']} chunks...")
+            print(f"   📥 Ingesting '{event['book']}': {event['current']} chunks processed...")
         elif etype == "success":
             print(f"✅ Successfully ingested '{event['book']}' ({event['chunks']} chunks)")
         elif etype == "warning":

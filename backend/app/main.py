@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Optional
 
 from app.config import HOST, PORT
-from app.database import query_documents, get_collection
+from app.database import query_documents, get_collection, clear_database
 from app.model import generate_chat_stream
 from app.ingest import ingest_all_books, ingest_all_books_generator
 
@@ -69,10 +69,17 @@ def list_books():
         raise HTTPException(status_code=500, detail=f"Error listing books: {str(e)}")
 
 @app.post("/api/ingest")
-async def trigger_ingest():
+async def trigger_ingest(clear: bool = False):
     """
     Triggers book parsing and ingestion and streams progress events to the client.
     """
+    if clear:
+        print("Clearing database collection...")
+        try:
+            clear_database()
+        except Exception as e:
+            print(f"Error clearing database during API request: {e}")
+            
     def event_generator():
         try:
             for event in ingest_all_books_generator():
