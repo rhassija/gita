@@ -42,3 +42,4 @@ To help you run, customize, and deploy this project, we have created dedicated g
 * 🛠️ **[Quick Start Guide](docs/quickstart.md)**: Steps to spin up the frontend and backend, log in to the Admin Console, and execute dynamic database re-indexing.
 * 🏗️ **[Architecture Design](docs/architecture.md)**: In-depth dynamic sequence diagrams, streaming ingestion flow, and dynamic vector database routing details.
 * 💻 **[Codebase Reference](docs/codebase.md)**: Deep dive into the codebase logic, including the global fetch wrapper with auto-auth headers, dynamic config states, and SSE streams.
+* 🌐 **[Cloud Hosting & Operations Guide](docs/operations.md)**: Operations handbook outlining Fly.io machine startups, shutdowns, volume mount details, Vercel updates, and local database backup/pull instructions.

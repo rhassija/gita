@@ -1,0 +1,12 @@
+chroma_db/
+chroma_db_backup/
+chroma_db_ollama/
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git
+.github
+.env

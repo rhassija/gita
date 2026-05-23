@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 
 # Load environment variables from .env if it exists
-load_dotenv(override=True)
+load_dotenv(override=False)
 
 class AppSettings:
     def __init__(self):

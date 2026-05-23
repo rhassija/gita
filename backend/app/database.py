@@ -1,3 +1,4 @@
+import os
 import chromadb
 from typing import List, Dict
 from app.config import settings
@@ -14,7 +15,9 @@ def get_chroma_client():
     """
     global _active_client, _active_path
     
-    target_path = "./chroma_db_ollama" if settings.embedding_provider == "ollama" else "./chroma_db_backup"
+    base_dir = os.getenv("CHROMA_DB_DIR", ".")
+    sub_dir = "chroma_db_ollama" if settings.embedding_provider == "ollama" else "chroma_db_backup"
+    target_path = os.path.join(base_dir, sub_dir)
     
     if _active_client is None or _active_path != target_path:
         print(f"🔄 Switched database connection path to: {target_path}")

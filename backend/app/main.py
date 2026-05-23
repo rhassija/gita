@@ -115,33 +115,54 @@ def verify_admin_password(req: VerifyRequest):
 def list_books():
     """
     Retrieves the list of books loaded into the database and their chunk counts.
+    Uses direct SQLite query to avoid OOM memory crashes on large databases.
     """
     try:
-        collection = get_collection()
-        count = collection.count()
-        if count == 0:
+        import os
+        import sqlite3
+        
+        base_dir = os.getenv("CHROMA_DB_DIR", ".")
+        sub_dir = "chroma_db_ollama" if settings.embedding_provider == "ollama" else "chroma_db_backup"
+        target_path = os.path.join(base_dir, sub_dir)
+        sqlite_path = os.path.join(target_path, "chroma.sqlite3")
+        
+        if not os.path.exists(sqlite_path):
             return {"books": [], "total_chunks": 0}
             
-        # Retrieve metadata for all documents to find unique book names
-        result = collection.get(include=["metadatas"])
+        conn = sqlite3.connect(sqlite_path)
+        cursor = conn.cursor()
         
-        books_summary = {}
-        if result and result["metadatas"]:
-            for meta in result["metadatas"]:
-                book_name = meta.get("book", "Unknown Book")
-                books_summary[book_name] = books_summary.get(book_name, 0) + 1
-                
-        books_list = [
-            {"name": name, "chunk_count": chunk_count}
-            for name, chunk_count in books_summary.items()
-        ]
-        
-        return {
-            "books": books_list,
-            "total_chunks": count
-        }
+        try:
+            # Query grouped book metadata counts
+            cursor.execute(
+                "SELECT string_value, COUNT(*) FROM embedding_metadata WHERE key='book' GROUP BY string_value;"
+            )
+            rows = cursor.fetchall()
+            
+            books_list = [
+                {"name": row[0], "chunk_count": row[1]}
+                for row in rows
+            ]
+            
+            # Query total number of chunks
+            cursor.execute("SELECT COUNT(*) FROM embeddings;")
+            total_chunks = cursor.fetchone()[0]
+            
+            return {
+                "books": books_list,
+                "total_chunks": total_chunks
+            }
+        finally:
+            conn.close()
+            
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error listing books: {str(e)}")
+        # Fallback to standard client count query if SQLite fails for some reason
+        try:
+            collection = get_collection()
+            count = collection.count()
+            return {"books": [], "total_chunks": count, "error": str(e)}
+        except:
+            raise HTTPException(status_code=500, detail=f"Error listing books: {str(e)}")
 
 @app.post("/api/ingest")
 async def trigger_ingest(clear: bool = False, x_admin_password: Optional[str] = Header(None)):

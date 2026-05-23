@@ -131,7 +131,7 @@ To host your React application publicly, you can deploy it to **Vercel** for fre
 4. Under the project configuration screen, change the **Root Directory** to `frontend`.
 5. Expand **Environment Variables** and add:
    * **Key**: `VITE_API_BASE_URL`
-   * **Value**: `https://your-tunnel-subdomain.loca.lt` (or your cloud backend URL)
+   * **Value**: `https://antarjyoti-backend.fly.dev` (your live Fly.io backend URL)
 6. Click **Deploy**. Vercel will build the Vite bundle and output a permanent production URL.
 
 #### Method B: Deploy via Vercel CLI
@@ -145,7 +145,7 @@ To host your React application publicly, you can deploy it to **Vercel** for fre
    ```
 3. Add the environment variable for production:
    ```bash
-   npx vercel env add VITE_API_BASE_URL production --value https://your-tunnel-subdomain.loca.lt --yes
+   npx vercel env add VITE_API_BASE_URL production --value https://antarjyoti-backend.fly.dev --yes
    ```
 4. Redeploy to push the variables into the build:
    ```bash
@@ -154,24 +154,69 @@ To host your React application publicly, you can deploy it to **Vercel** for fre
 
 ---
 
-## 🔗 5. Exposing Backend Publicly (Tunneling)
+## ☁️ 5. Cloud Backend Hosting (Fly.io)
 
-To connect your frontend on Vercel to the backend running locally on your Mac, you need to expose port `8000` to the internet.
+For a fully hosted experience where your laptop does not need to run a server or tunnel, you can host the FastAPI backend and Chroma database on **Fly.io** using a persistent storage volume.
 
-### Option A: LocalTunnel (No Signup Required)
+### Step 1: Install Flyctl and Log In
+1. Install the Fly.io command-line tool on your local Mac:
+   ```bash
+   brew install flyctl
+   ```
+2. Log in to your Fly.io account (opens a browser window):
+   ```bash
+   fly auth login
+   ```
+
+### Step 2: Create a Persistent Disk Volume
+Fly.io runs applications inside stateless firecracker VMs. To keep your database index files from being wiped when the VM restarts or redeploys, you must provision a persistent storage volume:
+```bash
+cd backend
+fly volumes create chroma_data --size 1 --region iad
+```
+
+### Step 3: Configure Environment & Deploy
+The `backend/fly.toml` file mounts this volume to `/data` and routes uvicorn. Deploy the backend with:
+```bash
+fly deploy
+```
+
+### Step 4: Set API Key Secrets
+Set your Google Gemini API key and admin password securely on the Fly.io dashboard:
+```bash
+fly secrets set GEMINI_API_KEY="your-gemini-api-key-here" ADMIN_PASSWORD="your-secure-admin-password"
+```
+
+### Step 5: Upload Your Local Database Index (Crucial)
+To avoid having to rebuild your database and pay for Gemini embeddings APIs again, copy your pre-built index directory directly to the persistent volume using Fly's secure SFTP:
+```bash
+# Upload the local chroma_db_backup directory to Fly.io persistent volume
+fly sftp put -R chroma_db_backup /data/chroma_db_backup
+```
+Once the upload finishes (around 2-3 minutes for ~580MB), restart the Fly.io machine to load the new database files:
+```bash
+# Find the machine ID using: fly machines list
+fly machine restart <machine-id>
+```
+
+---
+
+## 🔒 6. Public Admin Panel & Security Confirmation
+
+When your app is deployed to the public Vercel frontend link (e.g. `https://frontend-nu-ecru-51.vercel.app`):
+1. **Public Visibility**: The **Admin Panel** tab will show up on the public link.
+2. **Access Control**: General users can only chat with the bot and view citation sources. They cannot see the administration controls or configuration sliders.
+3. **Authentication**: To unlock settings or indexing controls, you must click **🔒 Admin Panel Login** at the bottom left of the sidebar and enter your configured password.
+4. **Backend Security**: Any sensitive modifications (`POST /api/settings` and `POST /api/ingest`) verify the `X-Admin-Password` header on the Fly.io server, preventing unauthorized manipulation even if someone bypasses the UI controls.
+
+---
+
+## 🔗 Appendix: Local Development Tunneling (Alternative)
+
+If you are developing locally and want to temporarily share your local backend from your laptop to Vercel without hosting it on Fly.io, you can use LocalTunnel:
 1. Open a new terminal and launch the tunnel:
    ```bash
    npx localtunnel --port 8000 --subdomain fine-ravens-study
    ```
-   > [!TIP]
-   > Always specify a custom `--subdomain` parameter. This guarantees you get the **exact same URL** every time you start the tunnel, so you don't have to keep updating your Vercel environment variables!
-
-2. Copy your tunnel URL (e.g., `https://fine-ravens-study.loca.lt`).
-3. Set this URL as the value of `VITE_API_BASE_URL` in Vercel.
-
-### Option B: Cloudflare Tunnel (Quick Tunnels)
-Launch a free quick tunnel:
-```bash
-cloudflared tunnel --url http://localhost:8000
-```
-This generates a random `*.trycloudflare.com` URL without requiring any registration or accounts.
+2. Copy your tunnel URL (e.g. `https://fine-ravens-study.loca.lt`).
+3. Set this URL as the value of `VITE_API_BASE_URL` on Vercel and redeploy.
