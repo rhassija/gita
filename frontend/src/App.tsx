@@ -26,6 +26,25 @@ interface Book {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
+// Auto-bypass localtunnel warning page for API calls
+const originalFetch = window.fetch;
+window.fetch = async (input, init) => {
+  const url = typeof input === "string" ? input : (input instanceof Request ? input.url : "");
+  if (url.includes("loca.lt")) {
+    init = init || {};
+    const headers = new Headers(init.headers || {});
+    headers.set("Bypass-Tunnel-Reminder", "true");
+    
+    // If input is a Request object, clone it with the new headers
+    if (input instanceof Request) {
+      return originalFetch(new Request(input, { headers }), init);
+    }
+    
+    init.headers = headers;
+  }
+  return originalFetch(input, init);
+};
+
 const SUGGESTIONS = [
   "What is the meaning of performing duty without attachment?",
   "Explain the cycle of attachment, desire, and anger according to Chapter 2.",
