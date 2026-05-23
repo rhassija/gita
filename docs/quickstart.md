@@ -97,23 +97,74 @@ npm run dev
 ```
 The app will run locally at [http://localhost:5173](http://localhost:5173).
 
-### Production Build
-To build the static files for production deployment (e.g. Vercel):
-```bash
-npm run build
-```
-This generates the optimized bundle inside the `dist/` directory.
+### Production Build & Deploy to Vercel
+
+To host your React application publicly, you can deploy it to **Vercel** for free.
+
+#### Method A: Deploy via GitHub (Recommended)
+1. Push your code to your GitHub repository.
+2. Sign up or log into [Vercel](https://vercel.com).
+3. Click **Add New > Project** and import your repository.
+4. **Crucial Setting**: Under the project configuration screen, change the **Root Directory** to `frontend`. (This tells Vercel to build the React codebase instead of the empty root).
+5. Expand **Environment Variables** and add:
+   * **Key**: `VITE_API_BASE_URL`
+   * **Value**: `https://your-tunnel-subdomain.loca.lt` (or your cloud backend URL)
+6. Click **Deploy**. Vercel will build the Vite bundle and output a permanent production URL.
+
+#### Method B: Deploy via Vercel CLI
+If you want to deploy directly from your local terminal:
+1. Navigate to the `frontend/` folder:
+   ```bash
+   cd frontend
+   ```
+2. Run the deployment setup:
+   ```bash
+   npx vercel --yes
+   ```
+3. Add the environment variable for production:
+   ```bash
+   npx vercel env add VITE_API_BASE_URL production --value https://your-tunnel-subdomain.loca.lt --yes
+   ```
+4. Redeploy to push the variables into the build:
+   ```bash
+   npx vercel --prod --yes
+   ```
 
 ---
 
 ## 🔗 4. Exposing Backend Publicly (Tunneling)
 
-To make your local backend accessible to a public website (like Vercel) for free:
+To connect your frontend on Vercel to the backend running locally on your Mac Mini, you need to expose port `8000` to the internet.
 
-1. In a new terminal window on your Mac, launch a secure tunnel:
+### Option A: LocalTunnel (No Signup Required)
+1. Open a new terminal on your Mac and launch the tunnel:
    ```bash
-   npx localtunnel --port 8000
+   npx localtunnel --port 8000 --subdomain fine-ravens-study
    ```
-2. Copy the generated URL (e.g., `https://fine-ravens-study.loca.lt`).
-3. Add this URL as the environment variable `VITE_API_BASE_URL` in your Vercel project settings.
-4. Redeploy the frontend on Vercel so the production build hooks into this URL.
+   > [!TIP]
+   > Always specify a custom `--subdomain` parameter (e.g. `--subdomain my-scripture-chat`). This guarantees you get the **exact same URL** every time you start the tunnel, so you don't have to keep updating your Vercel environment variables!
+
+2. Copy your tunnel URL (e.g., `https://fine-ravens-study.loca.lt`).
+3. Set this URL as the value of `VITE_API_BASE_URL` in Vercel.
+
+### Option B: Cloudflare Tunnel (Quick Tunnels)
+If you have Cloudflare's CLI installed, you can launch a free quick tunnel:
+```bash
+cloudflared tunnel --url http://localhost:8000
+```
+This generates a random `*.trycloudflare.com` URL without requiring any registration or accounts.
+
+### Option C: Ngrok (Standard)
+1. Install ngrok via Homebrew:
+   ```bash
+   brew install ngrok/ngrok/ngrok
+   ```
+2. Link your account authtoken (from ngrok.com dashboard):
+   ```bash
+   ngrok config add-authtoken <your-token>
+   ```
+3. Run the tunnel:
+   ```bash
+   ngrok http 8000
+   ```
+
