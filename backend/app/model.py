@@ -4,34 +4,21 @@ import requests
 import json
 from typing import Generator, List, Dict
 import google.generativeai as genai
-from app.config import (
-    GEMINI_API_KEY,
-    EMBEDDING_MODEL,
-    LLM_MODEL,
-    IS_MOCK_MODE,
-    LLM_PROVIDER,
-    OLLAMA_HOST,
-    OLLAMA_MODEL,
-    EMBEDDING_PROVIDER,
-    OLLAMA_EMBEDDING_MODEL
-)
-
-if not IS_MOCK_MODE:
-    genai.configure(api_key=GEMINI_API_KEY)
+from app.config import settings
 
 def get_embedding(text: str, is_query: bool = False) -> List[float]:
     """
     Generate embedding for a single text using Ollama, Gemini API, or a mock generator.
     """
-    if EMBEDDING_PROVIDER == "ollama":
+    if settings.embedding_provider == "ollama":
         prefix = ""
-        if "nomic" in OLLAMA_EMBEDDING_MODEL.lower():
+        if "nomic" in settings.ollama_embedding_model.lower():
             prefix = "search_query: " if is_query else "search_document: "
         
         try:
-            url = f"{OLLAMA_HOST}/api/embed"
+            url = f"{settings.ollama_host}/api/embed"
             payload = {
-                "model": OLLAMA_EMBEDDING_MODEL,
+                "model": settings.ollama_embedding_model,
                 "input": f"{prefix}{text}"
             }
             response = requests.post(url, json=payload)
@@ -41,9 +28,9 @@ def get_embedding(text: str, is_query: bool = False) -> List[float]:
                 return res_json["embeddings"][0]
             
             # Fallback to /api/embeddings if /api/embed response was empty
-            url_fallback = f"{OLLAMA_HOST}/api/embeddings"
+            url_fallback = f"{settings.ollama_host}/api/embeddings"
             payload_fallback = {
-                "model": OLLAMA_EMBEDDING_MODEL,
+                "model": settings.ollama_embedding_model,
                 "prompt": f"{prefix}{text}"
             }
             response_fb = requests.post(url_fallback, json=payload_fallback)
@@ -61,9 +48,9 @@ def get_embedding(text: str, is_query: bool = False) -> List[float]:
             return [rng.uniform(-0.1, 0.1) for _ in range(dim)]
 
     # gemini-embedding-2 uses 3072 dimensions, older/default models use 768
-    dim = 3072 if "embedding-2" in EMBEDDING_MODEL else 768
+    dim = 3072 if "embedding-2" in settings.embedding_model else 768
 
-    if IS_MOCK_MODE:
+    if settings.is_mock_mode:
         # Generate a deterministic mock vector based on the MD5 hash of the text
         hasher = hashlib.md5(text.encode('utf-8'))
         seed = int(hasher.hexdigest(), 16) % 1000000
@@ -71,9 +58,10 @@ def get_embedding(text: str, is_query: bool = False) -> List[float]:
         return [rng.uniform(-0.1, 0.1) for _ in range(dim)]
     
     try:
+        genai.configure(api_key=settings.gemini_api_key)
         task_type = "retrieval_query" if is_query else "retrieval_document"
         result = genai.embed_content(
-            model=EMBEDDING_MODEL,
+            model=settings.embedding_model,
             content=text,
             task_type=task_type
         )
@@ -90,13 +78,13 @@ def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
     """
     Generate embeddings for a list of texts using Ollama, Gemini API, or a mock generator.
     """
-    if EMBEDDING_PROVIDER == "ollama":
-        prefix = "search_document: " if "nomic" in OLLAMA_EMBEDDING_MODEL.lower() else ""
+    if settings.embedding_provider == "ollama":
+        prefix = "search_document: " if "nomic" in settings.ollama_embedding_model.lower() else ""
         prefixed_texts = [f"{prefix}{text}" for text in texts]
         try:
-            url = f"{OLLAMA_HOST}/api/embed"
+            url = f"{settings.ollama_host}/api/embed"
             payload = {
-                "model": OLLAMA_EMBEDDING_MODEL,
+                "model": settings.ollama_embedding_model,
                 "input": prefixed_texts
             }
             response = requests.post(url, json=payload)
@@ -112,9 +100,9 @@ def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
                 embeddings.append(get_embedding(text, is_query=False))
             return embeddings
 
-    dim = 3072 if "embedding-2" in EMBEDDING_MODEL else 768
+    dim = 3072 if "embedding-2" in settings.embedding_model else 768
 
-    if IS_MOCK_MODE:
+    if settings.is_mock_mode:
         embeddings = []
         for text in texts:
             hasher = hashlib.md5(text.encode('utf-8'))
@@ -124,9 +112,10 @@ def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
         return embeddings
         
     try:
+        genai.configure(api_key=settings.gemini_api_key)
         task_type = "retrieval_document"
         result = genai.embed_content(
-            model=EMBEDDING_MODEL,
+            model=settings.embedding_model,
             content=texts,
             task_type=task_type
         )
@@ -137,7 +126,6 @@ def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
         for text in texts:
             embeddings.append(get_embedding(text, is_query=False))
         return embeddings
-
 
 def generate_chat_stream(
     query: str, 
@@ -197,12 +185,12 @@ def generate_chat_stream(
         f"Guide (Response incorporating Sources with inline citations e.g. [Source #1]):"
     )
 
-    if LLM_PROVIDER == "ollama":
+    if settings.llm_provider == "ollama":
         try:
-            yield f"*(System Notice: Running locally via Ollama with model `{OLLAMA_MODEL}`)* \n\n"
-            url = f"{OLLAMA_HOST}/api/generate"
+            yield f"*(System Notice: Running locally via Ollama with model `{settings.ollama_model}`)* \n\n"
+            url = f"{settings.ollama_host}/api/generate"
             payload = {
-                "model": OLLAMA_MODEL,
+                "model": settings.ollama_model,
                 "prompt": full_prompt,
                 "stream": True
             }
@@ -222,7 +210,7 @@ def generate_chat_stream(
             yield "I was unable to connect to the local Ollama service. Let us pause, reflect on the silence, and try again."
             return
 
-    if LLM_PROVIDER == "mock" or (LLM_PROVIDER == "gemini" and IS_MOCK_MODE):
+    if settings.llm_provider == "mock" or (settings.llm_provider == "gemini" and settings.is_mock_mode):
         yield "*(System Notice: Running in Offline Mock Mode)* \n\n"
         if not context_chunks:
             yield "Greetings, seeker. I could not find any specific teachings in my records regarding this. In quiet meditation, we find that the answers often lie within. What else would you like to reflect upon?"
@@ -246,7 +234,8 @@ def generate_chat_stream(
         return
 
     try:
-        model = genai.GenerativeModel(LLM_MODEL)
+        genai.configure(api_key=settings.gemini_api_key)
+        model = genai.GenerativeModel(settings.llm_model)
         response = model.generate_content(full_prompt, stream=True)
         for chunk in response:
             if chunk.text:

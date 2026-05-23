@@ -26,22 +26,35 @@ interface Book {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-// Auto-bypass localtunnel warning page for API calls
+// Auto-bypass localtunnel warning page and inject admin password for API calls
 const originalFetch = window.fetch;
 window.fetch = async (input, init) => {
   const url = typeof input === "string" ? input : (input instanceof Request ? input.url : "");
+  
+  init = init || {};
+  const headers = new Headers(init.headers || {});
+  
   if (url.includes("loca.lt")) {
-    init = init || {};
-    const headers = new Headers(init.headers || {});
     headers.set("Bypass-Tunnel-Reminder", "true");
-    
-    // If input is a Request object, clone it with the new headers
-    if (input instanceof Request) {
-      return originalFetch(new Request(input, { headers }), init);
-    }
-    
-    init.headers = headers;
   }
+  
+  // Automatically inject admin password if saved locally
+  const adminPassword = localStorage.getItem("antarjyoti_admin_password");
+  if (adminPassword && (url.includes(API_BASE) || url.startsWith("/api/"))) {
+    headers.set("X-Admin-Password", adminPassword);
+  }
+  
+  if (input instanceof Request) {
+    const newRequestInit = { ...init };
+    input.headers.forEach((value, key) => {
+      if (!headers.has(key)) {
+        headers.set(key, value);
+      }
+    });
+    return originalFetch(new Request(input, { headers }), newRequestInit);
+  }
+  
+  init.headers = headers;
   return originalFetch(input, init);
 };
 
@@ -160,42 +173,140 @@ export default function App() {
   } | null>(null);
   const [backendStatus, setBackendStatus] = useState<"online" | "offline" | "mock">("offline");
   
-  // Citations modal
-  const [activeCitation, setActiveCitation] = useState<Source | null>(null);
+  // Admin auth states
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminPasswordError, setAdminPasswordError] = useState("");
+  
+  // Dynamic settings state
+  const [activeSettings, setActiveSettings] = useState({
+    llm_provider: "gemini",
+    embedding_provider: "gemini",
+    llm_model: "gemini-2.5-flash",
+    embedding_model: "models/gemini-embedding-2",
+    ollama_host: "http://localhost:11434",
+    ollama_model: "gemma3:4b",
+    ollama_embedding_model: "nomic-embed-text",
+    gemini_api_key_masked: "",
+    is_mock_mode: true
+  });
 
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/settings`);
+      if (res.ok) {
+        const data = await res.json();
+        setActiveSettings(data);
+      }
+    } catch (e) {
+      console.error("Error fetching settings:", e);
+    }
+  };
 
+  const handleVerifyAdmin = async () => {
+    if (!adminPassword) {
+      setAdminPasswordError("Password cannot be empty.");
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: adminPassword })
+      });
+      if (res.ok) {
+        localStorage.setItem("antarjyoti_admin_password", adminPassword);
+        setIsAdmin(true);
+        setIsAdminModalOpen(false);
+        setAdminPassword("");
+        setAdminPasswordError("");
+        fetchSettings(); // Refresh settings
+        fetchBooksList(); // Refresh books
+      } else {
+        const err = await res.json();
+        setAdminPasswordError(err.detail || "Authentication failed.");
+      }
+    } catch (e) {
+      setAdminPasswordError("Failed to connect to API.");
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("antarjyoti_admin_password");
+    setIsAdmin(false);
+  };
+
+  const handleUpdateSetting = async (key: string, value: string) => {
+    try {
+      // Optimistic state update
+      setActiveSettings(prev => ({ ...prev, [key]: value }));
+      
+      const payload = { [key]: value };
+      const res = await fetch(`${API_BASE}/api/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setActiveSettings(data.settings);
+        if (key === "embedding_provider") {
+          setTimeout(() => {
+            fetchBooksList();
+          }, 300);
+        }
+      } else {
+        const err = await res.json();
+        alert(`Failed to update setting: ${err.detail || res.statusText}`);
+        fetchSettings();
+      }
+    } catch (e) {
+      alert("Error updating settings");
+      fetchSettings();
+    }
+  };
+
+  // Check login on load
   useEffect(() => {
-    // Check backend connection and fetch books list
+    const saved = localStorage.getItem("antarjyoti_admin_password");
+    if (saved) {
+      setIsAdmin(true);
+    }
+  }, []);
+
+  // Initialize and health-check loop
+  useEffect(() => {
     const initialize = async () => {
       try {
         const healthRes = await fetch(`${API_BASE}/api/health`);
         if (healthRes.ok) {
-          // Check config if mock mode by calling books
           const booksRes = await fetch(`${API_BASE}/api/books`);
           if (booksRes.ok) {
             const data = await booksRes.json();
             setBooks(data.books || []);
             setTotalChunks(data.total_chunks || 0);
-            
-            // To detect mock mode, check if we get a header or mock response indicator
             setBackendStatus("online");
+            fetchSettings();
           }
         }
       } catch (err) {
-        console.error("Backend offline. Running with client side state.", err);
+        console.error("Backend offline.", err);
         setBackendStatus("offline");
       }
     };
     
     initialize();
     
-    // Periodically check health (every 10s)
     const interval = setInterval(async () => {
       try {
         const res = await fetch(`${API_BASE}/api/health`);
         if (res.ok) {
-          if (backendStatus === "offline") setBackendStatus("online");
+          if (backendStatus === "offline") {
+            setBackendStatus("online");
+            fetchSettings();
+            fetchBooksList();
+          }
         } else {
           setBackendStatus("offline");
         }
@@ -206,6 +317,10 @@ export default function App() {
 
     return () => clearInterval(interval);
   }, [backendStatus]);
+
+  // Citations modal & scroll references
+  const [activeCitation, setActiveCitation] = useState<Source | null>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -543,73 +658,165 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ marginTop: "16px" }}>
-            <h2 className="sidebar-section-title">
-              <span>⚙️</span> Ingestion Controls
-            </h2>
-            <div className="control-card" style={{ background: "hsla(24, 10%, 12%, 0.4)", borderRadius: "8px", border: "1px solid var(--border-light)" }}>
-              <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-                Reads raw books in <code>gita/books/</code> directory and builds the vector search database.
-              </p>
-              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-secondary)", cursor: "pointer", userSelect: "none", margin: "4px 0" }}>
-                <input 
-                  type="checkbox" 
-                  checked={clearOnIngest} 
-                  onChange={(e) => setClearOnIngest(e.target.checked)} 
-                  disabled={isIngesting || backendStatus === "offline"}
-                  style={{ accentColor: "var(--accent-gold)", width: "16px", height: "16px", cursor: "pointer" }}
-                />
-                Clear database before indexing
-              </label>
-              <button 
-                className="btn btn-primary" 
-                onClick={handleIngest} 
-                disabled={isIngesting || backendStatus === "offline"}
-              >
-                {isIngesting ? (
-                  <>
-                    <div className="spinner" /> Indexing...
-                  </>
-                ) : (
-                  "Index / Reload Books"
-                )}
-              </button>
-
-              {isIngesting && (
-                <div style={{ marginTop: "12px", borderTop: "1px solid var(--border-light)", paddingTop: "12px" }}>
-                  <div style={{ fontSize: "0.8rem", color: "var(--accent-gold)", fontWeight: 600, display: "flex", justifyContent: "space-between" }}>
-                    <span>Status:</span>
-                    <span style={{ color: "var(--text-primary)", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", maxWidth: "150px" }} title={ingestionStatus}>
-                      {ingestionStatus}
-                    </span>
+          <div style={{ marginTop: "16px", borderTop: "1px solid var(--border-light)", paddingTop: "16px" }}>
+            {isAdmin ? (
+              <>
+                <h2 className="sidebar-section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span>⚙️</span> Admin Settings
+                  </span>
+                  <button 
+                    onClick={handleLogout}
+                    style={{ background: "transparent", border: "none", color: "var(--accent-terracotta)", cursor: "pointer", fontSize: "0.75rem", textDecoration: "underline" }}
+                  >
+                    Logout
+                  </button>
+                </h2>
+                
+                {/* Dynamic Configuration Panel */}
+                <div className="control-card" style={{ background: "hsla(24, 10%, 12%, 0.4)", borderRadius: "8px", border: "1px solid var(--border-light)", display: "flex", flexDirection: "column", gap: "10px", marginBottom: "16px", padding: "12px" }}>
+                  <div>
+                    <label style={{ fontSize: "0.75rem", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>LLM Provider</label>
+                    <select 
+                      value={activeSettings.llm_provider} 
+                      onChange={(e) => handleUpdateSetting("llm_provider", e.target.value)}
+                      disabled={backendStatus === "offline"}
+                      style={{ width: "100%", padding: "6px", background: "var(--bg-deep)", color: "var(--text-primary)", border: "1px solid var(--border-light)", borderRadius: "4px", fontSize: "0.8rem", cursor: "pointer" }}
+                    >
+                      <option value="gemini">Google Gemini</option>
+                      <option value="ollama">Local Ollama</option>
+                    </select>
                   </div>
                   
-                  {ingestionProgress && (
-                    <div style={{ marginTop: "8px" }}>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginBottom: "4px", display: "flex", justifyContent: "space-between" }}>
-                        <span style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", maxWidth: "120px" }} title={ingestionProgress.book}>
-                          {ingestionProgress.book}
-                        </span>
-                        <span>
-                          {ingestionProgress.current} / {ingestionProgress.total} chunks
-                        </span>
-                      </div>
-                      <div className="progress-bar-container" style={{ width: "100%", height: "6px", background: "rgba(255,255,255,0.1)", borderRadius: "3px", overflow: "hidden" }}>
-                        <div 
-                          className="progress-bar-fill" 
-                          style={{ 
-                            width: `${(ingestionProgress.current / ingestionProgress.total) * 100}%`, 
-                            height: "100%", 
-                            background: "linear-gradient(90deg, var(--accent-gold), #ffd700)",
-                            transition: "width 0.2s ease-in-out"
-                          }}
-                        />
-                      </div>
+                  <div>
+                    <label style={{ fontSize: "0.75rem", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>Embedding Provider</label>
+                    <select 
+                      value={activeSettings.embedding_provider} 
+                      onChange={(e) => handleUpdateSetting("embedding_provider", e.target.value)}
+                      disabled={backendStatus === "offline"}
+                      style={{ width: "100%", padding: "6px", background: "var(--bg-deep)", color: "var(--text-primary)", border: "1px solid var(--border-light)", borderRadius: "4px", fontSize: "0.8rem", cursor: "pointer" }}
+                    >
+                      <option value="gemini">Google Gemini (3072d)</option>
+                      <option value="ollama">Local Ollama (768d)</option>
+                    </select>
+                    <span style={{ fontSize: "0.65rem", color: "var(--text-muted)", display: "block", marginTop: "4px" }}>
+                      * Database adjusts its directory dynamically depending on provider.
+                    </span>
+                  </div>
+
+                  {activeSettings.llm_provider === "ollama" && (
+                    <div>
+                      <label style={{ fontSize: "0.75rem", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>Ollama LLM Model</label>
+                      <input 
+                        type="text" 
+                        value={activeSettings.ollama_model}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setActiveSettings(prev => ({ ...prev, ollama_model: val }));
+                        }}
+                        onBlur={() => handleUpdateSetting("ollama_model", activeSettings.ollama_model)}
+                        style={{ width: "100%", padding: "6px", background: "var(--bg-deep)", color: "var(--text-primary)", border: "1px solid var(--border-light)", borderRadius: "4px", fontSize: "0.8rem" }}
+                      />
+                    </div>
+                  )}
+
+                  {activeSettings.embedding_provider === "ollama" && (
+                    <div>
+                      <label style={{ fontSize: "0.75rem", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>Ollama Embedding Model</label>
+                      <input 
+                        type="text" 
+                        value={activeSettings.ollama_embedding_model}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setActiveSettings(prev => ({ ...prev, ollama_embedding_model: val }));
+                        }}
+                        onBlur={() => handleUpdateSetting("ollama_embedding_model", activeSettings.ollama_embedding_model)}
+                        style={{ width: "100%", padding: "6px", background: "var(--bg-deep)", color: "var(--text-primary)", border: "1px solid var(--border-light)", borderRadius: "4px", fontSize: "0.8rem" }}
+                      />
                     </div>
                   )}
                 </div>
-              )}
-            </div>
+
+                {/* Ingestion Panel */}
+                <h2 className="sidebar-section-title">
+                  <span>⚙️</span> Ingestion Controls
+                </h2>
+                <div className="control-card" style={{ background: "hsla(24, 10%, 12%, 0.4)", borderRadius: "8px", border: "1px solid var(--border-light)", padding: "12px" }}>
+                  <p style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                    Reads raw books in <code>gita/books/</code> directory and builds the vector search database.
+                  </p>
+                  <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.8rem", color: "var(--text-secondary)", cursor: "pointer", userSelect: "none", margin: "4px 0" }}>
+                    <input 
+                      type="checkbox" 
+                      checked={clearOnIngest} 
+                      onChange={(e) => setClearOnIngest(e.target.checked)} 
+                      disabled={isIngesting || backendStatus === "offline"}
+                      style={{ accentColor: "var(--accent-gold)", width: "16px", height: "16px", cursor: "pointer" }}
+                    />
+                    Clear database before indexing
+                  </label>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={handleIngest} 
+                    disabled={isIngesting || backendStatus === "offline"}
+                    style={{ width: "100%" }}
+                  >
+                    {isIngesting ? (
+                      <>
+                        <div className="spinner" /> Indexing...
+                      </>
+                    ) : (
+                      "Index / Reload Books"
+                    )}
+                  </button>
+
+                  {isIngesting && (
+                    <div style={{ marginTop: "12px", borderTop: "1px solid var(--border-light)", paddingTop: "12px" }}>
+                      <div style={{ fontSize: "0.8rem", color: "var(--accent-gold)", fontWeight: 600, display: "flex", justifyContent: "space-between" }}>
+                        <span>Status:</span>
+                        <span style={{ color: "var(--text-primary)", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", maxWidth: "150px" }} title={ingestionStatus}>
+                          {ingestionStatus}
+                        </span>
+                      </div>
+                      
+                      {ingestionProgress && (
+                        <div style={{ marginTop: "8px" }}>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginBottom: "4px", display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", maxWidth: "120px" }} title={ingestionProgress.book}>
+                              {ingestionProgress.book}
+                            </span>
+                            <span>
+                              {ingestionProgress.current} / {ingestionProgress.total} chunks
+                            </span>
+                          </div>
+                          <div className="progress-bar-container" style={{ width: "100%", height: "6px", background: "rgba(255,255,255,0.1)", borderRadius: "3px", overflow: "hidden" }}>
+                            <div 
+                              className="progress-bar-fill" 
+                              style={{ 
+                                width: `${(ingestionProgress.current / ingestionProgress.total) * 100}%`, 
+                                height: "100%", 
+                                background: "linear-gradient(90deg, var(--accent-gold), #ffd700)",
+                                transition: "width 0.2s ease-in-out"
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div style={{ padding: "8px", textAlign: "center" }}>
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => setIsAdminModalOpen(true)}
+                  style={{ width: "100%", gap: "8px" }}
+                >
+                  🔒 Admin Panel Login
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="connection-status" style={{ marginTop: "auto", fontSize: "0.75rem", color: "var(--text-muted)", flexDirection: "column", alignItems: "flex-start", gap: "4px" }}>
@@ -818,6 +1025,87 @@ export default function App() {
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "8px" }}>
               <button className="btn btn-secondary" onClick={() => setActiveCitation(null)}>
                 Close Reflection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Admin Login Modal */}
+      {isAdminModalOpen && (
+        <div style={{
+          position: "fixed",
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0, 0, 0, 0.75)",
+          backdropFilter: "blur(5px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1000,
+        }}>
+          <div className="glass-panel" style={{
+            width: "350px",
+            padding: "24px",
+            borderRadius: "12px",
+            border: "1px solid var(--border-light)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "16px",
+            boxShadow: "0 8px 32px 0 rgba(0, 0, 0, 0.37)"
+          }}>
+            <h3 style={{ margin: 0, color: "var(--accent-gold)", textAlign: "center", fontSize: "1.2rem" }}>
+              🔒 Administrator Login
+            </h3>
+            <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-secondary)", textAlign: "center" }}>
+              Enter password to unlock system configuration and document ingestion controls.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <input
+                type="password"
+                placeholder="Enter password..."
+                value={adminPassword}
+                onChange={(e) => {
+                  setAdminPassword(e.target.value);
+                  setAdminPasswordError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleVerifyAdmin();
+                }}
+                style={{
+                  width: "100%",
+                  padding: "10px",
+                  background: "var(--bg-deep)",
+                  color: "var(--text-primary)",
+                  border: "1px solid var(--border-light)",
+                  borderRadius: "6px",
+                  fontSize: "0.9rem",
+                  outline: "none"
+                }}
+                autoFocus
+              />
+              {adminPasswordError && (
+                <span style={{ fontSize: "0.75rem", color: "var(--accent-terracotta)" }}>
+                  ⚠️ {adminPasswordError}
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => {
+                  setIsAdminModalOpen(false);
+                  setAdminPassword("");
+                  setAdminPasswordError("");
+                }}
+                style={{ flex: 1 }}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn btn-primary" 
+                onClick={handleVerifyAdmin}
+                style={{ flex: 1 }}
+              >
+                Submit
               </button>
             </div>
           </div>

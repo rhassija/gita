@@ -1,11 +1,11 @@
 import json
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 
-from app.config import HOST, PORT
+from app.config import HOST, PORT, settings, print_current_config
 from app.database import query_documents, get_collection, clear_database
 from app.model import generate_chat_stream
 from app.ingest import ingest_all_books, ingest_all_books_generator
@@ -30,9 +30,86 @@ class ChatRequest(BaseModel):
     # Optionally restrict search to a specific book
     filter_book: Optional[str] = None
 
+class SettingsRequest(BaseModel):
+    llm_provider: Optional[str] = None
+    embedding_provider: Optional[str] = None
+    llm_model: Optional[str] = None
+    embedding_model: Optional[str] = None
+    ollama_host: Optional[str] = None
+    ollama_model: Optional[str] = None
+    ollama_embedding_model: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+
+class VerifyRequest(BaseModel):
+    password: str
+
+# Dependency helper to verify admin credentials
+def verify_admin(x_admin_password: Optional[str] = Header(None)):
+    if x_admin_password != settings.admin_password:
+        raise HTTPException(status_code=403, detail="Unauthorized: Invalid admin password.")
+
 @app.get("/api/health")
 def health_check():
     return {"status": "healthy"}
+
+@app.get("/api/settings")
+def get_settings():
+    """
+    Retrieves current active configurations (masks API key for security).
+    """
+    api_key_masked = ""
+    if settings.gemini_api_key:
+        api_key_masked = settings.gemini_api_key[:6] + "..." if len(settings.gemini_api_key) > 6 else "***"
+    return {
+        "llm_provider": settings.llm_provider,
+        "embedding_provider": settings.embedding_provider,
+        "llm_model": settings.llm_model,
+        "embedding_model": settings.embedding_model,
+        "ollama_host": settings.ollama_host,
+        "ollama_model": settings.ollama_model,
+        "ollama_embedding_model": settings.ollama_embedding_model,
+        "gemini_api_key_masked": api_key_masked,
+        "is_mock_mode": settings.is_mock_mode
+    }
+
+@app.post("/api/settings")
+def update_settings(req: SettingsRequest, x_admin_password: Optional[str] = Header(None)):
+    """
+    Updates configuration dynamically. Requires admin password header.
+    """
+    verify_admin(x_admin_password)
+    
+    if req.llm_provider is not None:
+        settings.llm_provider = req.llm_provider.lower()
+    if req.embedding_provider is not None:
+        settings.embedding_provider = req.embedding_provider.lower()
+    if req.llm_model is not None:
+        settings.llm_model = req.llm_model
+    if req.embedding_model is not None:
+        settings.embedding_model = req.embedding_model
+    if req.ollama_host is not None:
+        settings.ollama_host = req.ollama_host
+    if req.ollama_model is not None:
+        settings.ollama_model = req.ollama_model
+    if req.ollama_embedding_model is not None:
+        settings.ollama_embedding_model = req.ollama_embedding_model
+    if req.gemini_api_key is not None:
+        val = req.gemini_api_key.strip()
+        # Avoid overriding with placeholder strings
+        if val not in ["", "***", "null", "undefined"]:
+            settings.gemini_api_key = val
+            
+    print_current_config()
+    return {"message": "Settings updated successfully", "settings": get_settings()}
+
+@app.post("/api/admin/verify")
+def verify_admin_password(req: VerifyRequest):
+    """
+    Verifies admin password. Returns success or raises 403.
+    """
+    if req.password == settings.admin_password:
+        return {"status": "success", "message": "Admin session authenticated"}
+    raise HTTPException(status_code=403, detail="Invalid admin password")
 
 @app.get("/api/books")
 def list_books():
@@ -46,8 +123,6 @@ def list_books():
             return {"books": [], "total_chunks": 0}
             
         # Retrieve metadata for all documents to find unique book names
-        # Note: For massive datasets, collection.get(include=["metadatas"]) is slow,
-        # but for typical book libraries (<10,000 chunks) it works fast.
         result = collection.get(include=["metadatas"])
         
         books_summary = {}
@@ -69,10 +144,13 @@ def list_books():
         raise HTTPException(status_code=500, detail=f"Error listing books: {str(e)}")
 
 @app.post("/api/ingest")
-async def trigger_ingest(clear: bool = False):
+async def trigger_ingest(clear: bool = False, x_admin_password: Optional[str] = Header(None)):
     """
     Triggers book parsing and ingestion and streams progress events to the client.
+    Requires admin password header.
     """
+    verify_admin(x_admin_password)
+    
     if clear:
         print("Clearing database collection...")
         try:
@@ -108,7 +186,6 @@ async def chat_endpoint(request: ChatRequest):
     
     # 1. Retrieve relevant chunks from the database
     try:
-        # We fetch top 5 relevant chunks
         context_chunks = query_documents(user_query, n_results=5)
     except Exception as e:
         print(f"Error querying database: {e}")
@@ -143,7 +220,7 @@ async def chat_endpoint(request: ChatRequest):
             error_payload = {
                 "type": "error",
                 "message": f"Streaming error: {str(e)}"
-            }
+              }
             yield f"data: {json.dumps(error_payload)}\n\n"
             
         # Send done signifier

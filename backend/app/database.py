@@ -1,18 +1,34 @@
 import chromadb
 from typing import List, Dict
-from app.config import CHROMA_DB_PATH
+from app.config import settings
 from app.model import get_embedding, get_embeddings_batch
 
-# Initialize ChromaDB persistent client
-chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
+# Cache of persistent client to prevent multiple instantiations
+_active_client = None
+_active_path = None
+
+def get_chroma_client():
+    """
+    Get the ChromaDB persistent client dynamically based on settings.
+    If settings change, re-instantiates client.
+    """
+    global _active_client, _active_path
+    
+    target_path = "./chroma_db_ollama" if settings.embedding_provider == "ollama" else "./chroma_db_backup"
+    
+    if _active_client is None or _active_path != target_path:
+        print(f"🔄 Switched database connection path to: {target_path}")
+        _active_path = target_path
+        _active_client = chromadb.PersistentClient(path=target_path)
+        
+    return _active_client
 
 def get_collection():
     """
     Get or create the ChromaDB collection for spiritual books.
     """
-    # Use L2 (Euclidean distance) or Cosine similarity.
-    # Chroma defaults to L2, but cosine is often better for embeddings.
-    return chroma_client.get_or_create_collection(
+    client = get_chroma_client()
+    return client.get_or_create_collection(
         name="spiritual_books",
         metadata={"hnsw:space": "cosine"}
     )
@@ -78,8 +94,9 @@ def clear_database():
     """
     Clear all entries from the spiritual books collection.
     """
+    client = get_chroma_client()
     try:
-        chroma_client.delete_collection("spiritual_books")
+        client.delete_collection("spiritual_books")
         print("Database collection cleared.")
     except Exception as e:
         print(f"Error clearing database: {e}")

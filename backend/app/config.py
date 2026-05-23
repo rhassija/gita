@@ -4,46 +4,53 @@ from dotenv import load_dotenv
 # Load environment variables from .env if it exists
 load_dotenv(override=True)
 
-# We try to get from OS environment first (which might be injected by the system),
-# then fall back to the loaded .env file.
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-if GEMINI_API_KEY == "your_gemini_api_key_here":
-    GEMINI_API_KEY = ""
+class AppSettings:
+    def __init__(self):
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
+        if self.gemini_api_key == "your_gemini_api_key_here":
+            self.gemini_api_key = ""
+            
+        self.llm_provider = os.getenv("LLM_PROVIDER", "gemini").lower()
+        self.embedding_provider = os.getenv("EMBEDDING_PROVIDER", "gemini").lower()
+        self.llm_model = os.getenv("LLM_MODEL", "gemini-2.5-flash")
+        self.embedding_model = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-2")
+        
+        self.ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        self.ollama_model = os.getenv("OLLAMA_MODEL", "gemma3:4b")
+        self.ollama_embedding_model = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+        
+        self.admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
+        
+    @property
+    def is_mock_mode(self) -> bool:
+        return not bool(self.gemini_api_key)
 
-CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_db")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-2")
-LLM_MODEL = os.getenv("LLM_MODEL", "gemini-2.5-flash")
-
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
-EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "gemini").lower()
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:4b")
-OLLAMA_EMBEDDING_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+settings = AppSettings()
 
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
 
-# Check if Gemini key is available for embeddings/Gemini LLM
-IS_MOCK_MODE = not bool(GEMINI_API_KEY)
-
-print(f"\nConfiguration loaded: LLM_PROVIDER={LLM_PROVIDER}, EMBEDDING_PROVIDER={EMBEDDING_PROVIDER}")
-if LLM_PROVIDER == "ollama":
-    print(f"Ollama local LLM active. Host: {OLLAMA_HOST}, Model: {OLLAMA_MODEL}")
-elif LLM_PROVIDER == "gemini":
-    if IS_MOCK_MODE:
-        print("⚠️ WARNING: GEMINI_API_KEY is not set. LLM will run in MOCK MODE.")
+def print_current_config():
+    print(f"\nConfiguration active: LLM_PROVIDER={settings.llm_provider}, EMBEDDING_PROVIDER={settings.embedding_provider}")
+    if settings.llm_provider == "ollama":
+        print(f"Ollama local LLM active. Host: {settings.ollama_host}, Model: {settings.ollama_model}")
+    elif settings.llm_provider == "gemini":
+        if settings.is_mock_mode:
+            print("⚠️ WARNING: GEMINI_API_KEY is not set. LLM will run in MOCK MODE.")
+        else:
+            print(f"Gemini cloud LLM active. Model: {settings.llm_model}")
     else:
-        print(f"Gemini cloud LLM active. Model: {LLM_MODEL}")
-else:
-    print(f"⚠️ WARNING: Unknown LLM_PROVIDER '{LLM_PROVIDER}'. Falling back to Mock Mode for chat.")
+        print(f"⚠️ WARNING: Unknown LLM_PROVIDER '{settings.llm_provider}'. Mock Mode active.")
 
-if EMBEDDING_PROVIDER == "ollama":
-    print(f"Ollama local embeddings active. Host: {OLLAMA_HOST}, Model: {OLLAMA_EMBEDDING_MODEL}")
-elif EMBEDDING_PROVIDER == "gemini":
-    if IS_MOCK_MODE:
-        print("⚠️ WARNING: GEMINI_API_KEY is not set. Embeddings will run in MOCK MODE.")
+    if settings.embedding_provider == "ollama":
+        print(f"Ollama local embeddings active. Host: {settings.ollama_host}, Model: {settings.ollama_embedding_model}")
+    elif settings.embedding_provider == "gemini":
+        if settings.is_mock_mode:
+            print("⚠️ WARNING: GEMINI_API_KEY is not set. Embeddings will run in MOCK MODE.")
+        else:
+            print(f"Gemini cloud embeddings active. Model: {settings.embedding_model}")
     else:
-        print(f"Gemini cloud embeddings active. Model: {EMBEDDING_MODEL}")
-else:
-    print(f"⚠️ WARNING: Unknown EMBEDDING_PROVIDER '{EMBEDDING_PROVIDER}'. Falling back to Mock Mode for embeddings.")
-print()
+        print(f"⚠️ WARNING: Unknown EMBEDDING_PROVIDER '{settings.embedding_provider}'. Mock Mode active.")
+    print()
+
+print_current_config()
