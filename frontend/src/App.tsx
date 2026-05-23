@@ -62,6 +62,7 @@ export default function App() {
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
   
   // Database states
   const [books, setBooks] = useState<Book[]>([]);
@@ -394,22 +395,31 @@ export default function App() {
           </div>
         </div>
         
-        <div className="connection-status">
-          <div className={`status-dot ${
-            backendStatus === "online" 
-              ? (totalChunks > 0 ? "status-active" : "status-mock") 
-              : "status-inactive"
-          }`} />
-          <span>
-            {backendStatus === "online" 
-              ? (totalChunks > 0 ? "System Active (RAG)" : "Offline Mode (Mock)") 
-              : "Server Offline"}
-          </span>
+        <div className="header-controls" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <button 
+            className="library-toggle-btn btn btn-secondary" 
+            onClick={() => setShowLibrary(!showLibrary)}
+          >
+            {showLibrary ? "💬 Chat" : "📖 Library"}
+          </button>
+          
+          <div className="connection-status">
+            <div className={`status-dot ${
+              backendStatus === "online" 
+                ? (totalChunks > 0 ? "status-active" : "status-mock") 
+                : "status-inactive"
+            }`} />
+            <span className="connection-status-text">
+              {backendStatus === "online" 
+                ? (totalChunks > 0 ? "System Active" : "Offline Mode") 
+                : "Server Offline"}
+            </span>
+          </div>
         </div>
       </header>
 
       {/* Main Grid Layout */}
-      <main className="main-layout">
+      <main className={`main-layout ${showLibrary ? "show-library" : "show-chat"}`}>
         
         {/* Sidebar Panel */}
         <aside className="sidebar glass-panel">

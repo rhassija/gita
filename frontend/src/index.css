@@ -92,6 +92,10 @@ h1, h2, h3, .spiritual-font {
 }
 
 /* Layout Utilities */
+.library-toggle-btn {
+  display: none !important;
+}
+
 .app-container {
   display: flex;
   flex-direction: column;
@@ -103,10 +107,55 @@ h1, h2, h3, .spiritual-font {
 }
 
 @media (max-width: 768px) {
+  .library-toggle-btn {
+    display: flex !important;
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    height: 36px;
+    align-items: center;
+    border-radius: 8px;
+    background: hsla(36, 10%, 20%, 0.4);
+    border: 1px solid var(--border-light);
+    color: var(--text-secondary);
+  }
+  
+  .library-toggle-btn:hover {
+    background: hsla(36, 80%, 60%, 0.15);
+    color: var(--accent-gold);
+    border-color: var(--accent-gold-glow);
+  }
+
   .app-container {
-    padding: 12px;
-    height: auto;
-    min-height: 100vh;
+    padding: 8px;
+    height: 100vh;
+    height: 100dvh; /* dynamic viewport height */
+    overflow: hidden;
+    gap: 8px;
+  }
+  
+  .app-header {
+    padding: 10px 14px;
+    margin-bottom: 0;
+  }
+  
+  .app-logo {
+    font-size: 1.5rem;
+  }
+  
+  .app-title h1 {
+    font-size: 1.25rem;
+  }
+  
+  .app-subtitle {
+    font-size: 0.65rem;
+  }
+  
+  .connection-status-text {
+    display: none; /* Hide status text on small phones to save space */
+  }
+  
+  .connection-status {
+    padding: 8px;
   }
 }
 
@@ -160,6 +209,74 @@ h1, h2, h3, .spiritual-font {
 @media (max-width: 1024px) {
   .main-layout {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  /* Layout toggles between chat view and library view on mobile */
+  .main-layout {
+    display: flex;
+    flex-direction: column;
+    height: calc(100% - 60px);
+    overflow: hidden;
+    gap: 0;
+  }
+  
+  .main-layout.show-chat .sidebar {
+    display: none;
+  }
+  .main-layout.show-chat .chat-container {
+    display: flex;
+    flex: 1;
+    height: 100%;
+  }
+  
+  .main-layout.show-library .sidebar {
+    display: flex;
+    flex: 1;
+    height: 100%;
+    width: 100%;
+    border-radius: 16px;
+  }
+  .main-layout.show-library .chat-container {
+    display: none;
+  }
+  
+  /* Make message bubble take more width on mobile */
+  .message {
+    max-width: 95%;
+    gap: 8px;
+  }
+  
+  .avatar {
+    width: 32px;
+    height: 32px;
+    font-size: 1rem;
+  }
+  
+  .message-bubble {
+    padding: 10px 14px;
+    font-size: 0.94rem;
+  }
+  
+  .chat-history {
+    padding: 12px;
+  }
+  
+  .chat-input-container {
+    padding: 12px;
+  }
+  
+  .chat-input {
+    padding: 12px 50px 12px 14px;
+    font-size: 0.95rem;
+    border-radius: 8px;
+  }
+  
+  .send-button {
+    width: 36px;
+    height: 36px;
+    right: 8px;
   }
 }
 
