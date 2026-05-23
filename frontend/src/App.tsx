@@ -63,6 +63,40 @@ export default function App() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
+  const [activeSpeechId, setActiveSpeechId] = useState<string | null>(null);
+
+  const handleSpeak = (text: string, msgId: string) => {
+    if (activeSpeechId === msgId) {
+      window.speechSynthesis.cancel();
+      setActiveSpeechId(null);
+    } else {
+      window.speechSynthesis.cancel(); // Stop any ongoing speech
+      
+      // Clean markdown formatting, inline source tags, and system notices
+      let cleanText = text
+        .replace(/\*\(System Notice:[^)]+\)\*\s*\n*/g, "") // remove system notices
+        .replace(/\[Source\s*#\d+\]/g, "") // remove [Source #N] tags
+        .replace(/\*\*([^*]+)\*\*/g, "$1") // remove bold markdown
+        .replace(/\*([^*]+)\*/g, "$1") // remove italic markdown
+        .replace(/`([^`]+)`/g, "$1") // remove code backticks
+        .replace(/#+\s+/g, "") // remove headers
+        .trim();
+        
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.rate = 0.95; // Peaceful, slightly slower rate
+      utterance.pitch = 1.0;
+      
+      utterance.onend = () => {
+        setActiveSpeechId(null);
+      };
+      utterance.onerror = () => {
+        setActiveSpeechId(null);
+      };
+      
+      window.speechSynthesis.speak(utterance);
+      setActiveSpeechId(msgId);
+    }
+  };
   
   // Database states
   const [books, setBooks] = useState<Book[]>([]);
@@ -219,6 +253,10 @@ export default function App() {
 
   const handleSendMessage = async (textToSend: string) => {
     if (!textToSend.trim() || isLoading) return;
+    
+    // Stop any active speech readout
+    window.speechSynthesis.cancel();
+    setActiveSpeechId(null);
     
     const userMsgId = `user-${Date.now()}`;
     const assistantMsgId = `assistant-${Date.now()}`;
@@ -525,8 +563,37 @@ export default function App() {
           <div className="chat-history">
             {messages.map((msg) => (
               <div key={msg.id} className={`message ${msg.role === "user" ? "message-user" : "message-assistant"}`}>
-                <div className={`avatar ${msg.role === "user" ? "avatar-user" : "avatar-assistant"}`}>
-                  {msg.role === "user" ? "👤" : "🕉️"}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}>
+                  <div className={`avatar ${msg.role === "user" ? "avatar-user" : "avatar-assistant"}`}>
+                    {msg.role === "user" ? "👤" : "🕉️"}
+                  </div>
+                  {msg.role === "assistant" && msg.content !== "" && (
+                    <button
+                      className="speak-btn"
+                      onClick={() => handleSpeak(msg.content, msg.id)}
+                      title={activeSpeechId === msg.id ? "Stop Reading" : "Read Aloud"}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: activeSpeechId === msg.id ? "var(--accent-terracotta)" : "var(--text-muted)",
+                        cursor: "pointer",
+                        fontSize: "1.1rem",
+                        transition: "var(--transition-smooth)",
+                        padding: "4px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (activeSpeechId !== msg.id) e.currentTarget.style.color = "var(--accent-gold)";
+                      }}
+                      onMouseLeave={(e) => {
+                        if (activeSpeechId !== msg.id) e.currentTarget.style.color = "var(--text-muted)";
+                      }}
+                    >
+                      {activeSpeechId === msg.id ? "⏹️" : "🔊"}
+                    </button>
+                  )}
                 </div>
                 <div className="message-bubble">
                   <div className="message-text">
