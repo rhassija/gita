@@ -823,3 +823,8 @@ h1, h2, h3, .spiritual-font {
   0%, 80%, 100% { transform: scale(0); }
   40% { transform: scale(1); }
 }
+
+@keyframes pulseGlowRed {
+  from { box-shadow: 0 0 2px hsla(12, 60%, 55%, 0.3); }
+  to { box-shadow: 0 0 12px hsl(12, 60%, 55%); }
+}

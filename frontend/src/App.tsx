@@ -64,6 +64,11 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [activeSpeechId, setActiveSpeechId] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState(false);
+
+  // Support check for Web Speech API SpeechRecognition
+  const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  const isSpeechRecognitionSupported = !!SpeechRecognitionAPI;
 
   const handleSpeak = (text: string, msgId: string) => {
     if (activeSpeechId === msgId) {
@@ -95,6 +100,50 @@ export default function App() {
       
       window.speechSynthesis.speak(utterance);
       setActiveSpeechId(msgId);
+    }
+  };
+
+  const handleMicToggle = () => {
+    if (!isSpeechRecognitionSupported) {
+      alert("Speech recognition is not supported in this browser. Please try Chrome or Safari.");
+      return;
+    }
+
+    if (isListening) {
+      const recognition = (window as any)._activeRecognition;
+      if (recognition) {
+        recognition.stop();
+      }
+      setIsListening(false);
+    } else {
+      const recognition = new SpeechRecognitionAPI();
+      recognition.continuous = false;
+      recognition.lang = "en-US";
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setInput(prev => {
+          const separator = prev.trim() ? " " : "";
+          return prev + separator + transcript;
+        });
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error("Speech recognition error:", event.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      (window as any)._activeRecognition = recognition;
+      recognition.start();
     }
   };
   
@@ -646,12 +695,52 @@ export default function App() {
               <input
                 type="text"
                 className="chat-input"
-                placeholder={isLoading ? "Generating spiritual reflection..." : "Ask the sacred books, e.g. What is the path of devotion?"}
+                placeholder={isListening ? "Listening... Speak now." : (isLoading ? "Generating spiritual reflection..." : "Ask the sacred books, e.g. What is the path of devotion?")}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 disabled={isLoading}
                 id="chat-input-field"
+                style={{ paddingRight: "100px" }}
               />
+              
+              {isSpeechRecognitionSupported && !isLoading && (
+                <button
+                  type="button"
+                  onClick={handleMicToggle}
+                  className="mic-button"
+                  title={isListening ? "Stop listening" : "Dictate question"}
+                  style={{
+                    position: "absolute",
+                    right: "58px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    width: "40px",
+                    height: "40px",
+                    borderRadius: "8px",
+                    background: isListening 
+                      ? "linear-gradient(135deg, var(--accent-terracotta), hsl(12, 60%, 45%))" 
+                      : "hsla(36, 10%, 20%, 0.4)",
+                    border: isListening ? "1px solid var(--accent-terracotta)" : "1px solid var(--border-light)",
+                    color: isListening ? "var(--text-primary)" : "var(--text-secondary)",
+                    fontSize: "1.1rem",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transition: "var(--transition-smooth)",
+                    animation: isListening ? "pulseGlowRed 1.5s infinite alternate" : "none"
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isListening) e.currentTarget.style.color = "var(--accent-gold)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isListening) e.currentTarget.style.color = "var(--text-secondary)";
+                  }}
+                >
+                  {isListening ? "⏹️" : "🎙️"}
+                </button>
+              )}
+
               <button 
                 type="submit" 
                 className="send-button"
