@@ -134,20 +134,21 @@ h1, h2, h3, .spiritual-font {
   }
   
   .app-header {
-    padding: 10px 14px;
+    padding: 6px 10px;
     margin-bottom: 0;
   }
   
   .app-logo {
-    font-size: 1.5rem;
+    font-size: 1.3rem;
   }
   
   .app-title h1 {
-    font-size: 1.25rem;
+    font-size: 1.15rem;
+    line-height: 1.2;
   }
   
   .app-subtitle {
-    font-size: 0.65rem;
+    display: none !important;
   }
   
   .connection-status-text {
@@ -491,9 +492,10 @@ h1, h2, h3, .spiritual-font {
 }
 
 .message-assistant .message-bubble {
-  background: hsla(24, 10%, 12%, 0.7);
-  border: 1px solid var(--border-light);
-  border-top-left-radius: 4px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 4px 0;
   color: var(--text-primary);
 }
 

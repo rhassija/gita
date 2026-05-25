@@ -186,6 +186,7 @@ export default function App() {
     total: number;
   } | null>(null);
   const [backendStatus, setBackendStatus] = useState<"online" | "offline" | "mock">("offline");
+  const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
   
   // Admin auth states
   const [isAdmin, setIsAdmin] = useState(false);
@@ -340,16 +341,16 @@ export default function App() {
   // Smart scroll effect
   useEffect(() => {
     if (shouldAutoScroll) {
-      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      chatEndRef.current?.scrollIntoView({ behavior: isLoading ? "auto" : "smooth" });
     }
-  }, [messages, shouldAutoScroll]);
+  }, [messages, shouldAutoScroll, isLoading]);
 
   const handleScroll = () => {
     const container = chatHistoryRef.current;
     if (!container) return;
     
-    // Check if user is scrolled within 150px of the bottom
-    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+    // Check if user is scrolled within 30px of the bottom (tighter threshold for smart-scroll lock)
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 30;
     setShouldAutoScroll(isNearBottom);
   };
 
@@ -931,28 +932,52 @@ export default function App() {
                     
                     {/* Sources Preview (Assistant response only) */}
                     {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && (
-                      <div className="sources-panel">
-                        <div style={{ fontSize: "0.75rem", color: "var(--accent-gold)", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                          References used in this answer:
-                        </div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                          {msg.sources.map((src, sIdx) => {
-                            const verseText = src.metadata.verse ? `v. ${src.metadata.verse}` : `p. ${src.metadata.page || "N/A"}`;
-                            return (
-                              <div 
-                                key={src.id} 
-                                className="source-item" 
-                                style={{ padding: "6px 10px", cursor: "pointer", display: "flex", gap: "6px", alignItems: "center" }}
-                                onClick={() => setActiveCitation(src)}
-                              >
-                                <span className="source-num">{sIdx + 1}</span>
-                                <span style={{ fontSize: "0.75rem" }}>
-                                  <strong>{src.metadata.book}</strong> ({verseText})
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
+                      <div className="sources-panel" style={{ marginTop: "12px", borderTop: "none" }}>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedSources(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "var(--accent-gold)",
+                            fontSize: "0.75rem",
+                            fontWeight: 600,
+                            letterSpacing: "0.05em",
+                            textTransform: "uppercase",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "4px 0",
+                            userSelect: "none"
+                          }}
+                        >
+                          <span style={{ fontSize: "0.6rem", transition: "transform 0.2s", transform: expandedSources[msg.id] ? "rotate(90deg)" : "rotate(0deg)" }}>
+                            ▶
+                          </span>
+                          References used ({msg.sources.length})
+                        </button>
+                        
+                        {expandedSources[msg.id] && (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "8px", animation: "fadeIn 0.25s ease" }}>
+                            {msg.sources.map((src, sIdx) => {
+                              const verseText = src.metadata.verse ? `v. ${src.metadata.verse}` : `p. ${src.metadata.page || "N/A"}`;
+                              return (
+                                <div 
+                                  key={src.id} 
+                                  className="source-item" 
+                                  style={{ padding: "6px 10px", cursor: "pointer", display: "flex", gap: "6px", alignItems: "center" }}
+                                  onClick={() => setActiveCitation(src)}
+                                >
+                                  <span className="source-num">{sIdx + 1}</span>
+                                  <span style={{ fontSize: "0.75rem" }}>
+                                    <strong>{src.metadata.book}</strong> ({verseText})
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
