@@ -70,7 +70,7 @@ export default function App() {
     {
       id: "welcome",
       role: "assistant",
-      content: "Greetings, seeker. I am **AntarJyoti**, your guide. I can answer questions from your library of spiritual books and provide direct citations for the teachings. Ask me anything to begin our reflection."
+      content: "Hare Krishna! I am **AntarJyoti** your AI spiritual guide. I can answer questions from our library of Srila Prabhupada books and provide direct citations for the teachings. Ask me anything to begin our reflection."
     }
   ]);
   const [input, setInput] = useState("");
@@ -187,6 +187,7 @@ export default function App() {
   } | null>(null);
   const [backendStatus, setBackendStatus] = useState<"online" | "offline" | "mock">("offline");
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
+  const [showSuggestions, setShowSuggestions] = useState(false);
   
   // Admin auth states
   const [isAdmin, setIsAdmin] = useState(false);
@@ -1052,21 +1053,45 @@ export default function App() {
               
               {/* Preconfigured Questions */}
               {messages.length === 1 && !isLoading && (
-                <div style={{ marginTop: "16px" }}>
-                  <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                    Suggested Contemplations:
-                  </div>
-                  <div className="suggestions-grid">
-                    {SUGGESTIONS.map((s, idx) => (
-                      <button
-                        key={idx}
-                        className="suggestion-card"
-                        onClick={() => handleSendMessage(s)}
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
+                <div style={{ marginTop: "16px", textAlign: "left" }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowSuggestions(!showSuggestions)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--accent-gold)",
+                      fontSize: "0.75rem",
+                      fontWeight: 600,
+                      letterSpacing: "0.05em",
+                      textTransform: "uppercase",
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      padding: "4px 0",
+                      userSelect: "none"
+                    }}
+                  >
+                    <span style={{ fontSize: "0.6rem", transition: "transform 0.2s", transform: showSuggestions ? "rotate(90deg)" : "rotate(0deg)" }}>
+                      ▶
+                    </span>
+                    Suggested Contemplations
+                  </button>
+                  
+                  {showSuggestions && (
+                    <div className="suggestions-grid" style={{ animation: "fadeIn 0.25s ease", marginTop: "8px" }}>
+                      {SUGGESTIONS.map((s, idx) => (
+                        <button
+                          key={idx}
+                          className="suggestion-card"
+                          onClick={() => handleSendMessage(s)}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
