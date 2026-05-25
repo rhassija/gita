@@ -17,6 +17,9 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   sources?: Source[];
+  feedback?: number; // 1 for thumbs up, -1 for thumbs down
+  latency_ms?: number;
+  prompt_question?: string;
 }
 
 interface Book {
@@ -188,6 +191,10 @@ export default function App() {
   const [backendStatus, setBackendStatus] = useState<"online" | "offline" | "mock">("offline");
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [feedbackLogs, setFeedbackLogs] = useState<any[]>([]);
+  const [isLogsLoading, setIsLogsLoading] = useState(false);
+  const [expandedLogId, setExpandedLogId] = useState<number | null>(null);
   
   // Admin auth states
   const [isAdmin, setIsAdmin] = useState(false);
@@ -452,6 +459,7 @@ export default function App() {
     window.speechSynthesis.cancel();
     setActiveSpeechId(null);
     
+    const requestStartTime = Date.now();
     const userMsgId = `user-${Date.now()}`;
     const assistantMsgId = `assistant-${Date.now()}`;
     
@@ -534,13 +542,22 @@ export default function App() {
               );
             } else if (payload.type === "done") {
               // Streaming complete
-              setIsLoading(false);
-            } else if (payload.type === "error") {
-              // Stream error
+              const latency = Date.now() - requestStartTime;
               setMessages(prev => 
                 prev.map(m => 
                   m.id === assistantMsgId 
-                    ? { ...m, content: m.content + `\n\n*(Error: ${payload.message})*` }
+                    ? { ...m, latency_ms: latency, prompt_question: textToSend }
+                    : m
+                )
+              );
+              setIsLoading(false);
+            } else if (payload.type === "error") {
+              // Stream error
+              const latency = Date.now() - requestStartTime;
+              setMessages(prev => 
+                prev.map(m => 
+                  m.id === assistantMsgId 
+                    ? { ...m, content: m.content + `\n\n*(Error: ${payload.message})*`, latency_ms: latency, prompt_question: textToSend }
                     : m
                 )
               );
@@ -553,17 +570,69 @@ export default function App() {
       }
     } catch (error) {
       console.error("Fetch error:", error);
+      const latency = Date.now() - requestStartTime;
       setMessages(prev => 
         prev.map(m => 
           m.id === assistantMsgId 
             ? { 
                 ...m, 
-                content: "Deep apologies, Seeker. I am unable to query my inner database at this moment. Please ensure the backend server is running." 
+                content: "Deep apologies, Seeker. I am unable to query my inner database at this moment. Please ensure the backend server is running.",
+                latency_ms: latency,
+                prompt_question: textToSend
               }
             : m
         )
       );
       setIsLoading(false);
+    }
+  };
+
+  const handleFeedback = async (msgId: string, value: number) => {
+    try {
+      const msgIndex = messages.findIndex(m => m.id === msgId);
+      if (msgIndex === -1) return;
+      const msg = messages[msgIndex];
+      
+      const newFeedback = msg.feedback === value ? undefined : value;
+      
+      setMessages(prev =>
+        prev.map(m => m.id === msgId ? { ...m, feedback: newFeedback } : m)
+      );
+      
+      if (newFeedback !== undefined) {
+        const payload = {
+          question: msg.prompt_question || "",
+          answer: msg.content,
+          sources: msg.sources || [],
+          feedback_value: value,
+          latency_ms: msg.latency_ms || 0
+        };
+        
+        await fetch(`${API_BASE}/api/feedback`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+      }
+    } catch (e) {
+      console.error("Error submitting feedback:", e);
+    }
+  };
+
+  const fetchFeedbackLogs = async () => {
+    setIsLogsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/feedback`);
+      if (res.ok) {
+        const data = await res.json();
+        setFeedbackLogs(data.feedback || []);
+      } else {
+        console.error("Failed to fetch feedback logs");
+      }
+    } catch (e) {
+      console.error("Error fetching feedback logs:", e);
+    } finally {
+      setIsLogsLoading(false);
     }
   };
 
@@ -860,6 +929,19 @@ export default function App() {
                     </div>
                   )}
                 </div>
+
+                <div style={{ marginTop: "16px" }}>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={() => {
+                      setIsFeedbackModalOpen(true);
+                      fetchFeedbackLogs();
+                    }}
+                    style={{ width: "100%", gap: "8px" }}
+                  >
+                    📊 View Feedback Logs
+                  </button>
+                </div>
               </>
             ) : (
               <div style={{ padding: "8px", textAlign: "center" }}>
@@ -931,54 +1013,114 @@ export default function App() {
                       )}
                     </div>
                     
-                    {/* Sources Preview (Assistant response only) */}
-                    {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && (
-                      <div className="sources-panel" style={{ marginTop: "12px", borderTop: "none" }}>
-                        <button
-                          type="button"
-                          onClick={() => setExpandedSources(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            color: "var(--accent-gold)",
-                            fontSize: "0.75rem",
-                            fontWeight: 600,
-                            letterSpacing: "0.05em",
-                            textTransform: "uppercase",
-                            cursor: "pointer",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "6px",
-                            padding: "4px 0",
-                            userSelect: "none"
-                          }}
-                        >
-                          <span style={{ fontSize: "0.6rem", transition: "transform 0.2s", transform: expandedSources[msg.id] ? "rotate(90deg)" : "rotate(0deg)" }}>
-                            ▶
-                          </span>
-                          References used ({msg.sources.length})
-                        </button>
-                        
-                        {expandedSources[msg.id] && (
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "8px", animation: "fadeIn 0.25s ease" }}>
-                            {msg.sources.map((src, sIdx) => {
-                              const verseText = src.metadata.verse ? `v. ${src.metadata.verse}` : `p. ${src.metadata.page || "N/A"}`;
-                              return (
-                                <div 
-                                  key={src.id} 
-                                  className="source-item" 
-                                  style={{ padding: "6px 10px", cursor: "pointer", display: "flex", gap: "6px", alignItems: "center" }}
-                                  onClick={() => setActiveCitation(src)}
-                                >
-                                  <span className="source-num">{sIdx + 1}</span>
-                                  <span style={{ fontSize: "0.75rem" }}>
-                                    <strong>{src.metadata.book}</strong> ({verseText})
-                                  </span>
-                                </div>
-                              );
-                            })}
+                    {/* Sources Preview & Feedback telemetry bar (Assistant response only) */}
+                    {msg.role === "assistant" && (
+                      <div className="message-meta-bar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px", borderTop: "1px solid var(--border-light)", paddingTop: "8px", gap: "12px", flexWrap: "wrap" }}>
+                        {msg.sources && msg.sources.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setExpandedSources(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "var(--accent-gold)",
+                              fontSize: "0.75rem",
+                              fontWeight: 600,
+                              letterSpacing: "0.05em",
+                              textTransform: "uppercase",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "6px",
+                              padding: "4px 0",
+                              userSelect: "none"
+                            }}
+                          >
+                            <span style={{ fontSize: "0.6rem", transition: "transform 0.2s", transform: expandedSources[msg.id] ? "rotate(90deg)" : "rotate(0deg)" }}>
+                              ▶
+                            </span>
+                            References used ({msg.sources.length})
+                          </button>
+                        ) : <div />}
+
+                        {msg.id !== "welcome" && (
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            {msg.latency_ms && msg.latency_ms > 0 && (
+                              <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginRight: "8px" }}>
+                                {(msg.latency_ms / 1000).toFixed(1)}s
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleFeedback(msg.id, 1)}
+                              title="Helpful (Thumbs Up)"
+                              style={{
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                fontSize: "0.95rem",
+                                padding: "4px 6px",
+                                display: "flex",
+                                alignItems: "center",
+                                transition: "var(--transition-smooth)",
+                                opacity: msg.feedback === 1 ? 1 : 0.4,
+                                color: msg.feedback === 1 ? "var(--accent-sage)" : "var(--text-secondary)"
+                              }}
+                              onMouseEnter={(e) => { if (msg.feedback !== 1) e.currentTarget.style.opacity = "1"; }}
+                              onMouseLeave={(e) => { if (msg.feedback !== 1) e.currentTarget.style.opacity = "0.4"; }}
+                            >
+                              👍
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleFeedback(msg.id, -1)}
+                              title="Not helpful (Thumbs Down)"
+                              style={{
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                fontSize: "0.95rem",
+                                padding: "4px 6px",
+                                display: "flex",
+                                alignItems: "center",
+                                transition: "var(--transition-smooth)",
+                                opacity: msg.feedback === -1 ? 1 : 0.4,
+                                color: msg.feedback === -1 ? "var(--accent-terracotta)" : "var(--text-secondary)"
+                              }}
+                              onMouseEnter={(e) => { if (msg.feedback !== -1) e.currentTarget.style.opacity = "1"; }}
+                              onMouseLeave={(e) => { if (msg.feedback !== -1) e.currentTarget.style.opacity = "0.4"; }}
+                            >
+                              👎
+                            </button>
+                            {msg.feedback !== undefined && (
+                              <span style={{ fontSize: "0.7rem", color: "var(--accent-gold)", marginLeft: "4px", animation: "fadeIn 0.25s" }}>
+                                Saved!
+                              </span>
+                            )}
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {/* Sources Expansion Details */}
+                    {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && expandedSources[msg.id] && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "12px", animation: "fadeIn 0.25s ease" }}>
+                        {msg.sources.map((src, sIdx) => {
+                          const verseText = src.metadata.verse ? `v. ${src.metadata.verse}` : `p. ${src.metadata.page || "N/A"}`;
+                          return (
+                            <div 
+                              key={src.id} 
+                              className="source-item" 
+                              style={{ padding: "6px 10px", cursor: "pointer", display: "flex", gap: "6px", alignItems: "center" }}
+                              onClick={() => setActiveCitation(src)}
+                            >
+                              <span className="source-num">{sIdx + 1}</span>
+                              <span style={{ fontSize: "0.75rem" }}>
+                                <strong>{src.metadata.book}</strong> ({verseText})
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -1213,6 +1355,161 @@ export default function App() {
                 style={{ flex: 1 }}
               >
                 Submit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Feedback Logs Viewer Modal */}
+      {isFeedbackModalOpen && (
+        <div style={{
+          position: "fixed",
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0, 0, 0, 0.75)",
+          backdropFilter: "blur(5px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1000,
+        }} onClick={() => setIsFeedbackModalOpen(false)}>
+          <div className="glass-panel" style={{
+            width: "90%",
+            maxWidth: "800px",
+            maxHeight: "85vh",
+            padding: "24px",
+            borderRadius: "12px",
+            border: "1px solid var(--border-light)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "16px",
+            boxShadow: "0 8px 32px 0 rgba(0, 0, 0, 0.37)",
+            overflow: "hidden"
+          }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-light)", paddingBottom: "12px" }}>
+              <h3 style={{ margin: 0, color: "var(--accent-gold)", fontSize: "1.2rem" }}>
+                📊 User Feedback Telemetry Logs
+              </h3>
+              <button 
+                onClick={() => setIsFeedbackModalOpen(false)}
+                style={{ background: "transparent", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: "1.5rem" }}
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Summary Statistics */}
+            {!isLogsLoading && feedbackLogs.length > 0 && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", background: "rgba(255,255,255,0.03)", padding: "12px", borderRadius: "8px", border: "1px solid var(--border-light)" }}>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Total Submissions</div>
+                  <div style={{ fontSize: "1.2rem", fontWeight: "bold", color: "var(--text-primary)" }}>{feedbackLogs.length}</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Useful (👍) vs Not (👎)</div>
+                  <div style={{ fontSize: "1.2rem", fontWeight: "bold", color: "var(--text-primary)" }}>
+                    <span style={{ color: "var(--accent-sage)" }}>{feedbackLogs.filter(f => f.feedback_value === 1).length}</span> / <span style={{ color: "var(--accent-terracotta)" }}>{feedbackLogs.filter(f => f.feedback_value === -1).length}</span>
+                  </div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Avg Latency</div>
+                  <div style={{ fontSize: "1.2rem", fontWeight: "bold", color: "var(--text-primary)" }}>
+                    {(feedbackLogs.reduce((acc, curr) => acc + (curr.latency_ms || 0), 0) / feedbackLogs.length / 1000).toFixed(2)}s
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Logs List */}
+            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "10px", paddingRight: "4px" }}>
+              {isLogsLoading ? (
+                <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "150px", gap: "10px", color: "var(--accent-gold)" }}>
+                  <div className="spinner" /> Loading feedback logs...
+                </div>
+              ) : feedbackLogs.length === 0 ? (
+                <div style={{ textAlign: "center", color: "var(--text-secondary)", fontStyle: "italic", padding: "40px" }}>
+                  No user feedback logs recorded yet.
+                </div>
+              ) : (
+                feedbackLogs.map((log) => (
+                  <div key={log.id} style={{ background: "hsla(24, 10%, 8%, 0.4)", border: "1px solid var(--border-light)", borderRadius: "8px", overflow: "hidden" }}>
+                    {/* Log Header Row */}
+                    <div 
+                      onClick={() => setExpandedLogId(expandedLogId === log.id ? null : log.id)}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "12px 16px",
+                        cursor: "pointer",
+                        background: expandedLogId === log.id ? "hsla(24, 10%, 12%, 0.6)" : "transparent",
+                        transition: "background 0.2s"
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0 }}>
+                        <span style={{ fontSize: "1.1rem" }}>
+                          {log.feedback_value === 1 ? "👍" : "👎"}
+                        </span>
+                        <span style={{
+                          fontSize: "0.85rem",
+                          fontWeight: 500,
+                          color: "var(--text-primary)",
+                          textOverflow: "ellipsis",
+                          overflow: "hidden",
+                          whiteSpace: "nowrap",
+                          maxWidth: "350px"
+                        }} title={log.question}>
+                          {log.question}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px", fontSize: "0.75rem", color: "var(--text-muted)", flexShrink: 0 }}>
+                        <span>{(log.latency_ms / 1000).toFixed(1)}s</span>
+                        <span>{new Date(log.timestamp).toLocaleDateString()}</span>
+                        <span>{expandedLogId === log.id ? "▲" : "▼"}</span>
+                      </div>
+                    </div>
+
+                    {/* Expanded Content */}
+                    {expandedLogId === log.id && (
+                      <div style={{ padding: "16px", borderTop: "1px solid var(--border-light)", display: "flex", flexDirection: "column", gap: "12px", background: "hsla(24, 10%, 5%, 0.3)" }}>
+                        <div>
+                          <strong style={{ fontSize: "0.75rem", color: "var(--accent-gold)", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>User Question:</strong>
+                          <p style={{ fontSize: "0.9rem", color: "var(--text-primary)", margin: 0 }}>{log.question}</p>
+                        </div>
+                        <div>
+                          <strong style={{ fontSize: "0.75rem", color: "var(--accent-gold)", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>AI Response:</strong>
+                          <p style={{ fontSize: "0.9rem", color: "var(--text-secondary)", margin: 0, whiteSpace: "pre-wrap" }}>{log.answer}</p>
+                        </div>
+                        {log.sources && log.sources.length > 0 && (
+                          <div>
+                            <strong style={{ fontSize: "0.75rem", color: "var(--accent-gold)", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>Retrieved Citations:</strong>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
+                              {log.sources.map((src: any, sIdx: number) => {
+                                const verseText = src.metadata.verse ? `v. ${src.metadata.verse}` : `p. ${src.metadata.page || "N/A"}`;
+                                return (
+                                  <div 
+                                    key={sIdx} 
+                                    className="source-item" 
+                                    style={{ padding: "4px 8px", fontSize: "0.7rem", display: "flex", gap: "4px", alignItems: "center" }}
+                                  >
+                                    <span className="source-num" style={{ width: "14px", height: "14px", fontSize: "0.6rem" }}>{sIdx + 1}</span>
+                                    <span><strong>{src.metadata.book}</strong> ({verseText})</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", borderTop: "1px solid var(--border-light)", paddingTop: "12px" }}>
+              <button className="btn btn-secondary" onClick={() => setIsFeedbackModalOpen(false)}>
+                Close Logs
               </button>
             </div>
           </div>
