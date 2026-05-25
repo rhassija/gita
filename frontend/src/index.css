@@ -462,6 +462,7 @@ h1, h2, h3, .spiritual-font {
   font-size: 1.2rem;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .avatar-user {

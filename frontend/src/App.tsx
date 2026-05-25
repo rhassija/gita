@@ -70,7 +70,7 @@ export default function App() {
     {
       id: "welcome",
       role: "assistant",
-      content: "Hare Krishna! I am **AntarJyoti** your AI spiritual guide. I can answer questions from our library of Srila Prabhupada books and provide direct citations for the teachings. Ask me anything to begin our reflection."
+      content: "Hare Krishna! I am **AntarJyoti** your AI spiritual guide. I can answer questions from our library of **Srila Prabhupada** books and provide direct citations for the teachings. Ask me anything to begin our reflection."
     }
   ]);
   const [input, setInput] = useState("");
@@ -887,8 +887,8 @@ export default function App() {
               {messages.map((msg) => (
                 <div key={msg.id} className={`message ${msg.role === "user" ? "message-user" : "message-assistant"}`}>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}>
-                    <div className={`avatar ${msg.role === "user" ? "avatar-user" : "avatar-assistant"}`}>
-                      {msg.role === "user" ? "👤" : "🕉️"}
+                    <div className={`avatar ${msg.role === "user" ? "avatar-user" : "avatar-assistant"}`} style={{ overflow: "hidden" }}>
+                      {msg.role === "user" ? "👤" : <img src="/krishna_avatar.png" alt="Krishna" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
                     </div>
                     {msg.role === "assistant" && msg.content !== "" && (
                       <button
