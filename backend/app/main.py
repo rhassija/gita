@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Optional
 
 from app.config import HOST, PORT, settings, print_current_config
-from app.database import query_documents, get_collection, clear_database
+from app.database import query_documents, get_collection, clear_database, save_feedback
 from app.model import generate_chat_stream
 from app.ingest import ingest_all_books, ingest_all_books_generator
 
@@ -42,6 +42,13 @@ class SettingsRequest(BaseModel):
 
 class VerifyRequest(BaseModel):
     password: str
+
+class FeedbackRequest(BaseModel):
+    question: str
+    answer: str
+    sources: Optional[List[Dict]] = []
+    feedback_value: int
+    latency_ms: Optional[float] = 0.0
 
 # Dependency helper to verify admin credentials
 def verify_admin(x_admin_password: Optional[str] = Header(None)):
@@ -249,6 +256,69 @@ async def chat_endpoint(request: ChatRequest):
         yield f"data: {json.dumps(done_payload)}\n\n"
 
     return StreamingResponse(sse_generator(), media_type="text/event-stream")
+
+@app.post("/api/feedback")
+def submit_feedback(req: FeedbackRequest):
+    """
+    Submits user thumbs-up/down feedback for a query-answer pair.
+    """
+    try:
+        import os
+        import json
+        
+        base_dir = os.getenv("CHROMA_DB_DIR", ".")
+        sub_dir = "chroma_db_ollama" if settings.embedding_provider == "ollama" else "chroma_db_backup"
+        target_path = os.path.join(base_dir, sub_dir)
+        sqlite_path = os.path.join(target_path, "chroma.sqlite3")
+        
+        sources_str = json.dumps(req.sources)
+        save_feedback(sqlite_path, req.question, req.answer, sources_str, req.feedback_value, req.latency_ms)
+        return {"status": "success", "message": "Feedback submitted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error saving feedback: {str(e)}")
+
+@app.get("/api/admin/feedback")
+def get_feedback_logs(x_admin_password: Optional[str] = Header(None)):
+    """
+    Retrieves history of submitted user feedback ratings. Admin only.
+    """
+    verify_admin(x_admin_password)
+    try:
+        import os
+        import sqlite3
+        import json
+        
+        base_dir = os.getenv("CHROMA_DB_DIR", ".")
+        sub_dir = "chroma_db_ollama" if settings.embedding_provider == "ollama" else "chroma_db_backup"
+        target_path = os.path.join(base_dir, sub_dir)
+        sqlite_path = os.path.join(target_path, "chroma.sqlite3")
+        
+        if not os.path.exists(sqlite_path):
+            return {"feedback": []}
+            
+        conn = sqlite3.connect(sqlite_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT id, question, answer, sources, feedback_value, latency_ms, timestamp FROM user_feedback ORDER BY timestamp DESC;"
+            )
+            rows = cursor.fetchall()
+            logs = []
+            for r in rows:
+                logs.append({
+                    "id": r[0],
+                    "question": r[1],
+                    "answer": r[2],
+                    "sources": json.loads(r[3]) if r[3] else [],
+                    "feedback_value": r[4],
+                    "latency_ms": r[5],
+                    "timestamp": r[6]
+                })
+            return {"feedback": logs}
+        finally:
+            conn.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving feedback: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

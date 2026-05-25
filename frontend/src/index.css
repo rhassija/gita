@@ -197,51 +197,94 @@ h1, h2, h3, .spiritual-font {
   margin-top: 2px;
 }
 
-/* Main Grid Layout */
+/* Main Layout */
 .main-layout {
-  display: grid;
-  grid-template-columns: 320px 1fr;
+  display: flex;
   flex: 1;
-  gap: 20px;
   min-height: 0; /* Important for flex child scroll */
+  position: relative;
+  overflow: hidden;
 }
 
+/* Sidebar Backdrop for mobile/tablet */
+.sidebar-backdrop {
+  display: none;
+}
+
+/* Sidebar Styling */
+.sidebar {
+  width: 320px;
+  min-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  padding: 20px;
+  background: var(--bg-card);
+  border-right: 1px solid var(--border-light);
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), margin-left 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  z-index: 10;
+}
+
+/* Collapsible state for desktop */
+.main-layout.sidebar-collapsed .sidebar {
+  margin-left: -320px;
+}
+
+/* Center containers for Claude-like chatbot experience */
+.chat-history-inner {
+  max-width: 800px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.chat-input-inner {
+  max-width: 800px;
+  width: 100%;
+  margin: 0 auto;
+  position: relative;
+}
+
+/* Responsive Overrides */
 @media (max-width: 1024px) {
-  .main-layout {
-    grid-template-columns: 1fr;
+  /* Sidebar behaves as a slide-out drawer on tablet and mobile */
+  .sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 290px;
+    min-width: 290px;
+    margin-left: 0 !important;
+    background: var(--bg-deep);
+    border-right: 1px solid var(--border-light);
+    box-shadow: var(--glass-shadow);
+    z-index: 100;
+    transform: translateX(0);
+  }
+
+  .main-layout.sidebar-collapsed .sidebar {
+    transform: translateX(-100%);
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(4px);
+    z-index: 90;
+    animation: fadeIn 0.2s ease-out;
   }
 }
 
 @media (max-width: 768px) {
-  /* Layout toggles between chat view and library view on mobile */
-  .main-layout {
-    display: flex;
-    flex-direction: column;
-    height: calc(100% - 60px);
-    overflow: hidden;
-    gap: 0;
-  }
-  
-  .main-layout.show-chat .sidebar {
-    display: none;
-  }
-  .main-layout.show-chat .chat-container {
-    display: flex;
-    flex: 1;
-    height: 100%;
-  }
-  
-  .main-layout.show-library .sidebar {
-    display: flex;
-    flex: 1;
-    height: 100%;
-    width: 100%;
-    border-radius: 16px;
-  }
-  .main-layout.show-library .chat-container {
-    display: none;
-  }
-  
   /* Make message bubble take more width on mobile */
   .message {
     max-width: 95%;
@@ -278,15 +321,6 @@ h1, h2, h3, .spiritual-font {
     height: 36px;
     right: 8px;
   }
-}
-
-/* Sidebar Styling */
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  overflow-y: auto;
-  padding: 20px;
 }
 
 .sidebar-section-title {

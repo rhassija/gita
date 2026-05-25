@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import chromadb
 from typing import List, Dict
 from app.config import settings
@@ -7,6 +8,39 @@ from app.model import get_embedding, get_embeddings_batch
 # Cache of persistent client to prevent multiple instantiations
 _active_client = None
 _active_path = None
+
+def init_feedback_db(sqlite_path: str):
+    """
+    Creates user_feedback table inside the Chroma SQLite database.
+    """
+    conn = sqlite3.connect(sqlite_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            question TEXT,
+            answer TEXT,
+            sources TEXT,
+            feedback_value INTEGER,
+            latency_ms REAL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    conn.commit()
+    conn.close()
+
+def save_feedback(sqlite_path: str, question: str, answer: str, sources: str, feedback_value: int, latency_ms: float):
+    """
+    Saves user feedback rating for a specific question/answer.
+    """
+    conn = sqlite3.connect(sqlite_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO user_feedback (question, answer, sources, feedback_value, latency_ms)
+        VALUES (?, ?, ?, ?, ?);
+    """, (question, answer, sources, feedback_value, latency_ms))
+    conn.commit()
+    conn.close()
 
 def get_chroma_client():
     """
@@ -23,6 +57,13 @@ def get_chroma_client():
         print(f"🔄 Switched database connection path to: {target_path}")
         _active_path = target_path
         _active_client = chromadb.PersistentClient(path=target_path)
+        
+        # Initialize custom user feedback database
+        try:
+            sqlite_path = os.path.join(target_path, "chroma.sqlite3")
+            init_feedback_db(sqlite_path)
+        except Exception as e:
+            print(f"⚠️ Failed to initialize feedback table in SQLite: {e}")
         
     return _active_client
 

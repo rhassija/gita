@@ -75,9 +75,23 @@ export default function App() {
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [showLibrary, setShowLibrary] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const [activeSpeechId, setActiveSpeechId] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
+
+  // Resize listener to auto-close sidebar on smaller screens
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth <= 1024) {
+        setIsSidebarOpen(false);
+      } else {
+        setIsSidebarOpen(true);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   // Support check for Web Speech API SpeechRecognition
   const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -321,10 +335,23 @@ export default function App() {
   // Citations modal & scroll references
   const [activeCitation, setActiveCitation] = useState<Source | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatHistoryRef = useRef<HTMLDivElement>(null);
 
+  // Smart scroll effect
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (shouldAutoScroll) {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, shouldAutoScroll]);
+
+  const handleScroll = () => {
+    const container = chatHistoryRef.current;
+    if (!container) return;
+    
+    // Check if user is scrolled within 150px of the bottom
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+    setShouldAutoScroll(isNearBottom);
+  };
 
   const fetchBooksList = async () => {
     try {
@@ -434,6 +461,10 @@ export default function App() {
     setMessages(newMessages);
     setInput("");
     setIsLoading(true);
+    setShouldAutoScroll(true);
+    setTimeout(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 100);
     
     // Pre-create the assistant message in history
     setMessages(prev => [
@@ -590,22 +621,39 @@ export default function App() {
     <div className="app-container">
       {/* Dynamic Header */}
       <header className="app-header glass-panel">
-        <div className="app-title-container">
-          <div className="app-logo">✦</div>
-          <div className="app-title">
-            <h1>AntarJyoti</h1>
-            <div className="app-subtitle">Spiritual Wisdom Assistant</div>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <button 
+            className="sidebar-toggle-btn"
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            title={isSidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--text-secondary)",
+              cursor: "pointer",
+              fontSize: "1.3rem",
+              padding: "4px 8px",
+              display: "flex",
+              alignItems: "center",
+              borderRadius: "6px",
+              transition: "var(--transition-smooth)"
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.color = "var(--accent-gold)"}
+            onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-secondary)"}
+          >
+            ☰
+          </button>
+          
+          <div className="app-title-container">
+            <div className="app-logo">✦</div>
+            <div className="app-title">
+              <h1>AntarJyoti</h1>
+              <div className="app-subtitle">Spiritual Wisdom Assistant</div>
+            </div>
           </div>
         </div>
         
         <div className="header-controls" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <button 
-            className="library-toggle-btn btn btn-secondary" 
-            onClick={() => setShowLibrary(!showLibrary)}
-          >
-            {showLibrary ? "💬 Chat" : "📖 Library"}
-          </button>
-          
           <div className="connection-status">
             <div className={`status-dot ${
               backendStatus === "online" 
@@ -621,9 +669,14 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Grid Layout */}
-      <main className={`main-layout ${showLibrary ? "show-library" : "show-chat"}`}>
+      {/* Main Layout wrapper */}
+      <main className={`main-layout ${isSidebarOpen ? "sidebar-open" : "sidebar-collapsed"}`}>
         
+        {/* Mobile sidebar backdrop overlay */}
+        {isSidebarOpen && (
+          <div className="sidebar-backdrop" onClick={() => setIsSidebarOpen(false)} />
+        )}
+
         {/* Sidebar Panel */}
         <aside className="sidebar glass-panel">
           <div>
@@ -827,167 +880,171 @@ export default function App() {
 
         {/* Chat Interface Container */}
         <section className="chat-container glass-panel">
-          <div className="chat-history">
-            {messages.map((msg) => (
-              <div key={msg.id} className={`message ${msg.role === "user" ? "message-user" : "message-assistant"}`}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}>
-                  <div className={`avatar ${msg.role === "user" ? "avatar-user" : "avatar-assistant"}`}>
-                    {msg.role === "user" ? "👤" : "🕉️"}
-                  </div>
-                  {msg.role === "assistant" && msg.content !== "" && (
-                    <button
-                      className="speak-btn"
-                      onClick={() => handleSpeak(msg.content, msg.id)}
-                      title={activeSpeechId === msg.id ? "Stop Reading" : "Read Aloud"}
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        color: activeSpeechId === msg.id ? "var(--accent-terracotta)" : "var(--text-muted)",
-                        cursor: "pointer",
-                        fontSize: "1.1rem",
-                        transition: "var(--transition-smooth)",
-                        padding: "4px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (activeSpeechId !== msg.id) e.currentTarget.style.color = "var(--accent-gold)";
-                      }}
-                      onMouseLeave={(e) => {
-                        if (activeSpeechId !== msg.id) e.currentTarget.style.color = "var(--text-muted)";
-                      }}
-                    >
-                      {activeSpeechId === msg.id ? "⏹️" : "🔊"}
-                    </button>
-                  )}
-                </div>
-                <div className="message-bubble">
-                  <div className="message-text">
-                    {msg.content === "" ? (
-                      <div className="typing-indicator">
-                        <div className="typing-dot"></div>
-                        <div className="typing-dot"></div>
-                        <div className="typing-dot"></div>
-                      </div>
-                    ) : (
-                      formatMessageText(msg.content, msg.sources)
+          <div className="chat-history" ref={chatHistoryRef} onScroll={handleScroll}>
+            <div className="chat-history-inner">
+              {messages.map((msg) => (
+                <div key={msg.id} className={`message ${msg.role === "user" ? "message-user" : "message-assistant"}`}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}>
+                    <div className={`avatar ${msg.role === "user" ? "avatar-user" : "avatar-assistant"}`}>
+                      {msg.role === "user" ? "👤" : "🕉️"}
+                    </div>
+                    {msg.role === "assistant" && msg.content !== "" && (
+                      <button
+                        className="speak-btn"
+                        onClick={() => handleSpeak(msg.content, msg.id)}
+                        title={activeSpeechId === msg.id ? "Stop Reading" : "Read Aloud"}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          color: activeSpeechId === msg.id ? "var(--accent-terracotta)" : "var(--text-muted)",
+                          cursor: "pointer",
+                          fontSize: "1.1rem",
+                          transition: "var(--transition-smooth)",
+                          padding: "4px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (activeSpeechId !== msg.id) e.currentTarget.style.color = "var(--accent-gold)";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (activeSpeechId !== msg.id) e.currentTarget.style.color = "var(--text-muted)";
+                        }}
+                      >
+                        {activeSpeechId === msg.id ? "⏹️" : "🔊"}
+                      </button>
                     )}
                   </div>
-                  
-                  {/* Sources Preview (Assistant response only) */}
-                  {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && (
-                    <div className="sources-panel">
-                      <div style={{ fontSize: "0.75rem", color: "var(--accent-gold)", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                        References used in this answer:
-                      </div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                        {msg.sources.map((src, sIdx) => {
-                          const verseText = src.metadata.verse ? `v. ${src.metadata.verse}` : `p. ${src.metadata.page || "N/A"}`;
-                          return (
-                            <div 
-                              key={src.id} 
-                              className="source-item" 
-                              style={{ padding: "6px 10px", cursor: "pointer", display: "flex", gap: "6px", alignItems: "center" }}
-                              onClick={() => setActiveCitation(src)}
-                            >
-                              <span className="source-num">{sIdx + 1}</span>
-                              <span style={{ fontSize: "0.75rem" }}>
-                                <strong>{src.metadata.book}</strong> ({verseText})
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
+                  <div className="message-bubble">
+                    <div className="message-text">
+                      {msg.content === "" ? (
+                        <div className="typing-indicator">
+                          <div className="typing-dot"></div>
+                          <div className="typing-dot"></div>
+                          <div className="typing-dot"></div>
+                        </div>
+                      ) : (
+                        formatMessageText(msg.content, msg.sources)
+                      )}
                     </div>
-                  )}
+                    
+                    {/* Sources Preview (Assistant response only) */}
+                    {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && (
+                      <div className="sources-panel">
+                        <div style={{ fontSize: "0.75rem", color: "var(--accent-gold)", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                          References used in this answer:
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                          {msg.sources.map((src, sIdx) => {
+                            const verseText = src.metadata.verse ? `v. ${src.metadata.verse}` : `p. ${src.metadata.page || "N/A"}`;
+                            return (
+                              <div 
+                                key={src.id} 
+                                className="source-item" 
+                                style={{ padding: "6px 10px", cursor: "pointer", display: "flex", gap: "6px", alignItems: "center" }}
+                                onClick={() => setActiveCitation(src)}
+                              >
+                                <span className="source-num">{sIdx + 1}</span>
+                                <span style={{ fontSize: "0.75rem" }}>
+                                  <strong>{src.metadata.book}</strong> ({verseText})
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-            <div ref={chatEndRef} />
+              ))}
+              <div ref={chatEndRef} />
+            </div>
           </div>
 
           {/* Prompt input field */}
           <div className="chat-input-container">
-            <form onSubmit={handleSubmit} className="chat-form">
-              <input
-                type="text"
-                className="chat-input"
-                placeholder={isListening ? "Listening... Speak now." : (isLoading ? "Generating spiritual reflection..." : "Ask the sacred books, e.g. What is the path of devotion?")}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                disabled={isLoading}
-                id="chat-input-field"
-                style={{ paddingRight: "100px" }}
-              />
-              
-              {isSpeechRecognitionSupported && !isLoading && (
-                <button
-                  type="button"
-                  onClick={handleMicToggle}
-                  className="mic-button"
-                  title={isListening ? "Stop listening" : "Dictate question"}
-                  style={{
-                    position: "absolute",
-                    right: "58px",
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    width: "40px",
-                    height: "40px",
-                    borderRadius: "8px",
-                    background: isListening 
-                      ? "linear-gradient(135deg, var(--accent-terracotta), hsl(12, 60%, 45%))" 
-                      : "hsla(36, 10%, 20%, 0.4)",
-                    border: isListening ? "1px solid var(--accent-terracotta)" : "1px solid var(--border-light)",
-                    color: isListening ? "var(--text-primary)" : "var(--text-secondary)",
-                    fontSize: "1.1rem",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    transition: "var(--transition-smooth)",
-                    animation: isListening ? "pulseGlowRed 1.5s infinite alternate" : "none"
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isListening) e.currentTarget.style.color = "var(--accent-gold)";
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isListening) e.currentTarget.style.color = "var(--text-secondary)";
-                  }}
-                >
-                  {isListening ? "⏹️" : "🎙️"}
-                </button>
-              )}
+            <div className="chat-input-inner">
+              <form onSubmit={handleSubmit} className="chat-form">
+                <input
+                  type="text"
+                  className="chat-input"
+                  placeholder={isListening ? "Listening... Speak now." : (isLoading ? "Generating spiritual reflection..." : "Ask the sacred books, e.g. What is the path of devotion?")}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  disabled={isLoading}
+                  id="chat-input-field"
+                  style={{ paddingRight: "100px" }}
+                />
+                
+                {isSpeechRecognitionSupported && !isLoading && (
+                  <button
+                    type="button"
+                    onClick={handleMicToggle}
+                    className="mic-button"
+                    title={isListening ? "Stop listening" : "Dictate question"}
+                    style={{
+                      position: "absolute",
+                      right: "58px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      width: "40px",
+                      height: "40px",
+                      borderRadius: "8px",
+                      background: isListening 
+                        ? "linear-gradient(135deg, var(--accent-terracotta), hsl(12, 60%, 45%))" 
+                        : "hsla(36, 10%, 20%, 0.4)",
+                      border: isListening ? "1px solid var(--accent-terracotta)" : "1px solid var(--border-light)",
+                      color: isListening ? "var(--text-primary)" : "var(--text-secondary)",
+                      fontSize: "1.1rem",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transition: "var(--transition-smooth)",
+                      animation: isListening ? "pulseGlowRed 1.5s infinite alternate" : "none"
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isListening) e.currentTarget.style.color = "var(--accent-gold)";
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isListening) e.currentTarget.style.color = "var(--text-secondary)";
+                    }}
+                  >
+                    {isListening ? "⏹️" : "🎙️"}
+                  </button>
+                )}
 
-              <button 
-                type="submit" 
-                className="send-button"
-                disabled={isLoading || !input.trim()}
-                id="chat-send-btn"
-              >
-                {isLoading ? "⏳" : "➔"}
-              </button>
-            </form>
-            
-            {/* Preconfigured Questions */}
-            {messages.length === 1 && !isLoading && (
-              <div style={{ marginTop: "16px" }}>
-                <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                  Suggested Contemplations:
+                <button 
+                  type="submit" 
+                  className="send-button"
+                  disabled={isLoading || !input.trim()}
+                  id="chat-send-btn"
+                >
+                  {isLoading ? "⏳" : "➔"}
+                </button>
+              </form>
+              
+              {/* Preconfigured Questions */}
+              {messages.length === 1 && !isLoading && (
+                <div style={{ marginTop: "16px" }}>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    Suggested Contemplations:
+                  </div>
+                  <div className="suggestions-grid">
+                    {SUGGESTIONS.map((s, idx) => (
+                      <button
+                        key={idx}
+                        className="suggestion-card"
+                        onClick={() => handleSendMessage(s)}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="suggestions-grid">
-                  {SUGGESTIONS.map((s, idx) => (
-                    <button
-                      key={idx}
-                      className="suggestion-card"
-                      onClick={() => handleSendMessage(s)}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </section>
 
