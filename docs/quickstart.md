@@ -43,7 +43,7 @@ Make sure Python 3.10+ is installed on your machine.
    OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 
    # Security Configuration (Locks configuration and ingestion APIs)
-   ADMIN_PASSWORD=admin123
+   ADMIN_PASSWORD=your_admin_password
 
    # Server host and port
    HOST=0.0.0.0
@@ -65,7 +65,7 @@ Ingestion controls and configuration selectors are secured from general users be
 
 1. Open the frontend dashboard at **[http://localhost:5173](http://localhost:5173)**.
 2. In the bottom left of the sidebar, click the **🔒 Admin Panel Login** button. (If you are on mobile, click **Library** in the header first to open the sidebar).
-3. Enter your configured password (default is `admin123`) and click **Submit**.
+3. Enter your configured password and click **Submit**.
 4. The sidebar will immediately slide up the **⚙️ Admin Settings** and **⚙️ Ingestion Controls** panels.
 5. Your login session is cached in local storage so you do not need to log in again. You can click **Logout** next to "Admin Settings" to sign out.
 
