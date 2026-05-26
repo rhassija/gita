@@ -1,0 +1,10 @@
+# Ignore everything except frontend and root vercel configuration
+.git
+backend/
+books/
+docs/
+chroma_prod.sqlite3
+query_feedback.ipynb
+view_logs.py
+feature_plan.md
+README.md
