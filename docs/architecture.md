@@ -140,6 +140,31 @@ sequenceDiagram
         API-->>Seeker: SSE Event: Send Text Token (data: {type: 'token', text: '...'})
     end
     API->>Seeker: SSE Event: Send Done Signifier (data: {type: 'done'})
+
+### 4. User Feedback & Telemetry Logging Workflow
+When a seeker clicks the 👍/👎 feedback buttons or when the admin reviews telemetry logs:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Seeker as Seeker (Web UI)
+    actor Admin as Administrator (Web UI)
+    participant API as FastAPI Backend
+    participant DB as SQLite DB (user_feedback Table)
+
+    %% Telemetry Submission
+    Seeker->>Seeker: Computes response latency (start to 'done' event)
+    Seeker->>API: POST /api/feedback {question, answer, sources, feedback_value, latency_ms}
+    API->>DB: save_feedback() writes SQLite record
+    DB-->>API: DB Insert Success
+    API-->>Seeker: Success JSON Response
+
+    %% Telemetry Review (Admin Console)
+    Admin->>API: GET /api/admin/feedback (X-Admin-Password)
+    API->>API: verify_admin() authentication check
+    API->>DB: Query SELECT * FROM user_feedback ORDER BY timestamp DESC
+    DB-->>API: SQLite Records Array
+    API-->>Admin: Telemetry Logs JSON payload
 ```
 
 ---

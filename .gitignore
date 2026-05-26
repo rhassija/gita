@@ -19,6 +19,7 @@ backend/.env
 backend/chroma_db/
 backend/chroma_db_backup/
 backend/chroma_db_ollama/
+chroma_prod.sqlite3
 
 # Large Book Files
 books/*.pdf

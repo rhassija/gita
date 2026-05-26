@@ -23,15 +23,48 @@ Because ChromaDB stores embeddings as local SQLite and binary files, your databa
 * **Local Ollama Database Backup** (768 dimensions): [backend/chroma_db_ollama](file:///Users/rajeshhassija/Documents/GitHub/gita/backend/chroma_db_ollama) (625 MB)
 
 ### 📥 Backing Up / Pulling Database Changes from Cloud to Mac
-If you perform new document ingestions in the cloud and want to download the updated database files back to your laptop:
-1. Navigate to the backend directory:
+If you perform new document ingestions in the cloud and want to download the updated database files (vector databases and embeddings) back to your laptop:
+1. Open a terminal and navigate to the project backend directory:
    ```bash
    cd backend
    ```
-2. Pull the files recursively over SFTP:
+2. Clean up any previous download folders (recursively) to avoid conflicting folders:
+   * **macOS / Linux**:
+     ```bash
+     rm -rf ./chroma_db_backup_new
+     ```
+   * **Windows (PowerShell)**:
+     ```powershell
+     Remove-Item -Recurse -Force ./chroma_db_backup_new
+     ```
+3. Pull the files recursively from the Fly.io persistent volume using SFTP:
    ```bash
-   fly sftp get -R /data/chroma_db_backup ./chroma_db_backup_new
+   fly sftp get -a antarjyoti-backend -R /data/chroma_db_backup ./chroma_db_backup_new
    ```
+
+### 📊 Pulling & Reviewing User Feedback Telemetry Logs
+If you want to download and review user thumbs up/down ratings, questions, answers, references, and response latencies logged in production:
+1. Navigate to the project root directory.
+2. Delete any existing local copy of `chroma_prod.sqlite3` (since the Fly.io SFTP client prevents overwriting files for safety):
+   * **macOS / Linux**:
+     ```bash
+     rm -f chroma_prod.sqlite3
+     ```
+   * **Windows (PowerShell)**:
+     ```powershell
+     Remove-Item -Force chroma_prod.sqlite3
+     ```
+3. Run the one-liner command to download the live database directly to the root of your local repository:
+   ```bash
+   # Combined Delete & Download One-Liner (macOS / Linux)
+   rm -f chroma_prod.sqlite3 && fly sftp get -a antarjyoti-backend /data/chroma_db_backup/chroma.sqlite3 ./chroma_prod.sqlite3
+   ```
+4. Once downloaded, review the logs using one of the following local tools:
+   * **Jupyter Notebook**: Open [query_feedback.ipynb](file:///Users/rajeshhassija/Documents/GitHub/gita/query_feedback.ipynb) in VS Code or Jupyter Server. Re-run all cells. It dynamically detects `chroma_prod.sqlite3`, sets up the tables if necessary, and renders beautiful tables with aggregated statistics (e.g. helpfulness count, response times).
+   * **Terminal/Console CLI Command**: Run the standalone logger utility script from the repository root:
+     ```bash
+     python view_logs.py
+     ```
 
 ### 📤 Restoring / Pushing Database Files from Mac to Cloud
 To restore or upload a pre-built local database folder from your laptop to the cloud volume:
